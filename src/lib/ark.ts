@@ -149,3 +149,15 @@ export async function waitForThreeD(task: PendingThreeDTask, options: { signal?:
   }
   throw new Error('查询等待已暂停，可稍后继续查询该 3D 任务')
 }
+
+export async function refreshAssetUrl(asset: GeneratedAsset, signal?: AbortSignal) {
+  if (!asset.taskId || asset.kind === 'image') throw new Error('这件作品没有可用于刷新链接的任务 ID')
+  const result = await arkFetch<VideoTaskResponse & ThreeDTaskResponse>(`/contents/generations/tasks/${asset.taskId}`, { method: 'GET', signal })
+  const status = (result.status ?? '').toLowerCase()
+  if (['failed', 'error', 'cancelled', 'expired'].includes(status)) throw new Error(result.error?.message || `远端任务状态为 ${status}`)
+  const url = asset.kind === 'video'
+    ? result.content?.video_url ?? result.output?.video_url ?? result.video_url
+    : result.content?.file_url ?? result.output?.file_url ?? result.file_url
+  if (!url) throw new Error(status && status !== 'succeeded' ? `远端任务仍在 ${status}` : '方舟没有返回新的资源链接')
+  return url
+}

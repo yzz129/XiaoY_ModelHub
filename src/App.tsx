@@ -7,7 +7,7 @@ import { VideoTaskStrip } from './components/VideoTaskStrip'
 import { styleTemplates } from './data/templates'
 import { useVideoQueue } from './hooks/useVideoQueue'
 import { useThreeDQueue } from './hooks/useThreeDQueue'
-import { generateImage, hasApiKey } from './lib/ark'
+import { generateImage, hasApiKey, refreshAssetUrl } from './lib/ark'
 import { clearHistory, loadHistory, loadPreferences, saveHistory, savePreferences } from './lib/storage'
 import type { AspectRatio, CanvasView, GeneratedAsset, GenerationKind, GenerationMode, GenerationSettings, Resolution, SettingsSnapshot, ThreeDJob, ThreeDModel, VideoJob } from './types/generation'
 
@@ -54,6 +54,9 @@ function App() {
   const [maxThreeDConcurrency, setMaxThreeDConcurrency] = useState(() => loadPreferences().maxThreeDConcurrency)
   const promptRef = useRef<HTMLTextAreaElement>(null)
   const imageAbortRef = useRef<AbortController | null>(null)
+  const refreshingAssetsRef = useRef(new Set<string>())
+  const failedAssetRefreshesRef = useRef(new Set<string>())
+  const [refreshingAssetIds, setRefreshingAssetIds] = useState<string[]>([])
   const template = useMemo(() => styleTemplates.find((item) => item.id === settings.styleId)!, [settings.styleId])
   const sessionAssets = history.filter((asset) => sessionAssetIds.includes(asset.id))
   const visibleAssets = canvasView === 'session' ? sessionAssets : history
@@ -90,6 +93,7 @@ function App() {
     if (!hasApiKey) { setImageError('请先在 .env.local 中配置火山方舟 API Key'); setSettingsOpen(true); return false }
     if (next.kind !== '3d' && !next.prompt.trim()) { setPromptError('请先写下画面描述'); setImageError('还缺少画面描述'); promptRef.current?.focus(); return false }
     if (next.kind === '3d' && !next.firstFrame) { setFrameError('图片转 3D 需要上传一张参考图片'); setImageError('请先上传参考图片'); return false }
+    if (next.kind === '3d' && next.firstFrame && (next.firstFrame.width < 300 || next.firstFrame.height < 300)) { setFrameError(`3D 参考图片至少需要 300 × 300px，当前为 ${next.firstFrame.width} × ${next.firstFrame.height}px`); setImageError('3D 参考图片尺寸过小'); return false }
     if (next.kind === 'video' && next.mode !== 'text' && !next.firstFrame) { setFrameError('当前模式需要上传首帧'); setImageError('请补充视频首帧'); return false }
     if (next.kind === 'video' && next.mode === 'first-last-frame' && !next.lastFrame) { setFrameError('首尾帧模式还需要尾帧'); setImageError('请补充视频尾帧'); return false }
     if (next.firstFrame && next.lastFrame) {
@@ -104,6 +108,36 @@ function App() {
     setHistory((current) => [...results, ...current.filter((item) => !results.some((result) => result.taskId && result.taskId === item.taskId))])
     setSessionAssetIds((current) => [...results.map((item) => item.id), ...current])
     setSelectedId(results[0]?.id); setCanvasView('session')
+  }
+
+  const refreshAsset = useCallback(async (asset: GeneratedAsset, force = false) => {
+    if (!asset.taskId || asset.kind === 'image') return
+    const failureKey = `${asset.id}:${asset.url}`
+    if (refreshingAssetsRef.current.has(asset.id)) return
+    if (!force && failedAssetRefreshesRef.current.has(failureKey)) return
+    refreshingAssetsRef.current.add(asset.id)
+    setRefreshingAssetIds([...refreshingAssetsRef.current])
+    try {
+      const url = await refreshAssetUrl(asset)
+      if (url === asset.url) throw new Error('方舟返回的仍是已失效链接，请稍后重试')
+      failedAssetRefreshesRef.current.delete(failureKey)
+      setHistory((current) => current.map((item) => item.id === asset.id ? { ...item, url } : item))
+      setNotice(asset.kind === 'video' ? '视频链接已刷新' : '3D 模型链接已刷新')
+    } catch (caught) {
+      failedAssetRefreshesRef.current.add(failureKey)
+      setNotice(caught instanceof Error ? `链接刷新失败：${caught.message}` : '链接刷新失败')
+    } finally {
+      refreshingAssetsRef.current.delete(asset.id)
+      setRefreshingAssetIds([...refreshingAssetsRef.current])
+    }
+  }, [])
+
+  function selectAsset(id: string) {
+    setSelectedId(id)
+    if (canvasView === 'history') {
+      setSessionAssetIds((current) => current.includes(id) ? current : [id, ...current])
+      setCanvasView('session')
+    }
   }
 
   async function submit(values: GenerationSettings = settings) {
@@ -190,7 +224,7 @@ function App() {
             <div className="panel-scroll">
               <section className="control-section"><div className="section-label"><span>创作方式</span><small>MODE</small></div><div className="mode-tabs">{modes.map((mode) => <button type="button" key={mode.id} aria-pressed={settings.mode === mode.id} className={settings.mode === mode.id ? 'active' : ''} onClick={() => switchMode(mode.id as GenerationMode)}>{mode.label}</button>)}</div></section>
               {settings.kind === 'video' && settings.mode !== 'text' && <div className="frame-grid"><FrameUpload label="首帧" hint="JPG / PNG / WebP · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} />{settings.mode === 'first-last-frame' && <FrameUpload label="尾帧" hint="建议与首帧比例一致" value={settings.lastFrame} onChange={(lastFrame) => patch({ lastFrame })} disabled={!settings.firstFrame} error={settings.firstFrame ? frameError : undefined} />}</div>}
-              {settings.kind === '3d' && <div className="frame-grid single"><FrameUpload label="3D 参考图片" hint="单个主体 · JPG / PNG / WebP · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} /></div>}
+              {settings.kind === '3d' && <div className="frame-grid single"><FrameUpload label="3D 参考图片" hint="不足 300 × 300px 自动白边补齐 · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} minWidth={300} minHeight={300} /></div>}
               {settings.kind === '3d' && <section className="control-section compact"><div className="section-label"><span>3D 模型</span><small>MODEL</small></div><div className="model-choice">{([['doubao-seed3d-2-0-260328', 'Seed3D 2.0'], ['hyper3d-gen2-260112', 'Hyper3D Gen2']] as Array<[ThreeDModel, string]>).map(([model, label]) => <button type="button" key={model} aria-pressed={(settings.threeDModel ?? 'doubao-seed3d-2-0-260328') === model} className={(settings.threeDModel ?? 'doubao-seed3d-2-0-260328') === model ? 'active' : ''} onClick={() => patch({ threeDModel: model })}><strong>{label}</strong><small>{model}</small></button>)}</div></section>}
               <section className="control-section"><div className="section-label"><label htmlFor="generation-prompt">{settings.kind === '3d' ? '输出命令（可选）' : '画面描述'}</label><small>{settings.kind === '3d' ? '3D OPTIONS' : 'PROMPT'}</small></div><PromptBox ref={promptRef} value={settings.prompt} onChange={(prompt) => { patch({ prompt }); setPromptError(undefined) }} onInspire={() => patch({ prompt: inspiration[Math.floor(Math.random() * inspiration.length)] })} error={promptError} threeD={settings.kind === '3d'} /></section>
               {settings.kind !== '3d' && <section className="control-section"><div className="section-label"><span>视觉主题</span><small>STYLE</small></div><div className="template-preview" style={{ background: template.gradient }}><div><small>{template.eyebrow}</small><strong>{template.name}</strong><p>{template.description}</p></div><span>已应用</span></div><div className="template-row">{styleTemplates.map((item) => <button type="button" key={item.id} aria-pressed={settings.styleId === item.id} className={settings.styleId === item.id ? 'active' : ''} onClick={() => patch({ styleId: item.id })} style={{ background: item.gradient }}><span>{item.name}</span></button>)}</div></section>}
@@ -206,7 +240,7 @@ function App() {
           <div className="canvas-toolbar"><div role="tablist" aria-label="作品范围"><button type="button" role="tab" aria-selected={canvasView === 'session'} className={canvasView === 'session' ? 'active' : ''} onClick={() => setCanvasView('session')}>本次创作 <span>{sessionAssets.length}</span></button><button type="button" role="tab" aria-selected={canvasView === 'history'} className={canvasView === 'history' ? 'active' : ''} onClick={() => setCanvasView('history')}>全部作品 <span>{history.length}</span></button></div><button type="button" className="new-task canvas-new" onClick={newTask}><Plus /> 新建创作</button></div>
           <VideoTaskStrip jobs={videoQueue.jobs} maxConcurrency={maxVideoConcurrency} onOpenSettings={() => setSettingsOpen(true)} onPause={videoQueue.pause} onResume={videoQueue.resume} onRetry={videoQueue.retry} onRemove={videoQueue.remove} onReuse={(job) => reuseJob(job as VideoJob)} />
           <VideoTaskStrip kind="3d" jobs={threeDQueue.jobs} maxConcurrency={maxThreeDConcurrency} onOpenSettings={() => setSettingsOpen(true)} onPause={threeDQueue.pause} onResume={threeDQueue.resume} onRetry={threeDQueue.retry} onRemove={threeDQueue.remove} onReuse={(job) => reuseThreeDJob(job as ThreeDJob)} />
-          <div className="canvas-content" role="tabpanel"><OutputStage assets={visibleAssets} view={canvasView} selectedId={selectedId} imageLoading={imageLoading} imageError={imageError} onSelect={setSelectedId} onReuse={reuse} onRemove={removeAsset} onSuggestion={(prompt) => { patch({ prompt }); focusControls() }} onRetryImage={lastFailedImage ? () => void submit(lastFailedImage) : undefined} /></div>
+          <div className="canvas-content" role="tabpanel"><OutputStage assets={visibleAssets} view={canvasView} selectedId={selectedId} imageLoading={imageLoading} imageError={imageError} refreshingAssetIds={refreshingAssetIds} onRefreshAsset={refreshAsset} onSelect={selectAsset} onReuse={reuse} onRemove={removeAsset} onSuggestion={(prompt) => { patch({ prompt }); focusControls() }} onRetryImage={lastFailedImage ? () => void submit(lastFailedImage) : undefined} /></div>
           <div className="canvas-foot"><span>作品仅保存在当前浏览器，远端链接可能过期</span><span>Powered by Volcengine Ark</span></div>
         </section>
       </div>
