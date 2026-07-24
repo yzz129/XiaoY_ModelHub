@@ -1,4 +1,4 @@
-import { Readable } from 'node:stream'
+import { request as httpsRequest } from 'node:https'
 import { defineConfig, type Connect, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -14,7 +14,7 @@ function isAllowedAssetUrl(value: string) {
   }
 }
 
-const assetProxy: Connect.NextHandleFunction = async (request, response, next) => {
+const assetProxy: Connect.NextHandleFunction = (request, response, next) => {
   if (!request.url?.startsWith(proxyPath)) return next()
   const requestUrl = new URL(request.url, 'http://localhost')
   const target = requestUrl.searchParams.get('url') ?? ''
@@ -25,20 +25,41 @@ const assetProxy: Connect.NextHandleFunction = async (request, response, next) =
   }
 
   try {
-    const headers: Record<string, string> = {}
+    const targetUrl = new URL(target)
+    const headers: Record<string, string> = { Host: targetUrl.host }
     if (request.headers.range) headers.Range = request.headers.range
-    const upstream = await fetch(target, { headers, redirect: 'follow' })
-    response.statusCode = upstream.status
-    response.setHeader('Access-Control-Allow-Origin', '*')
-    for (const name of forwardedHeaders) {
-      const value = upstream.headers.get(name)
-      if (value) response.setHeader(name, value)
-    }
-    if (!upstream.body || request.method === 'HEAD') {
-      response.end()
-      return
-    }
-    Readable.fromWeb(upstream.body).pipe(response)
+    const upstreamRequest = httpsRequest({
+      protocol: targetUrl.protocol,
+      hostname: targetUrl.hostname,
+      port: targetUrl.port || 443,
+      method: request.method === 'HEAD' ? 'HEAD' : 'GET',
+      path: `${targetUrl.pathname}${targetUrl.search}`,
+      headers,
+    }, (upstream) => {
+      response.statusCode = upstream.statusCode ?? 502
+      response.setHeader('Access-Control-Allow-Origin', '*')
+      for (const name of forwardedHeaders) {
+        const value = upstream.headers[name]
+        if (value) response.setHeader(name, value)
+      }
+      if (request.method === 'HEAD') {
+        upstream.resume()
+        response.end()
+        return
+      }
+      upstream.pipe(response)
+    })
+    upstreamRequest.on('error', (error) => {
+      if (response.headersSent) {
+        response.destroy(error)
+        return
+      }
+      response.statusCode = 502
+      response.setHeader('Content-Type', 'text/plain; charset=utf-8')
+      response.end(error.message)
+    })
+    request.on('aborted', () => upstreamRequest.destroy())
+    upstreamRequest.end()
   } catch (error) {
     response.statusCode = 502
     response.setHeader('Content-Type', 'text/plain; charset=utf-8')
