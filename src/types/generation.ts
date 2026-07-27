@@ -1,11 +1,13 @@
 export type GenerationKind = 'image' | 'video' | '3d'
 export type ImageMode = 'text'
-export type VideoMode = 'text' | 'first-frame' | 'first-last-frame'
+export type VideoMode = 'text' | 'first-frame' | 'first-last-frame' | 'reference-images'
 export type ThreeDMode = 'image-to-3d'
 export type GenerationMode = ImageMode | VideoMode | ThreeDMode
 export type AspectRatio = '1:1' | '4:3' | '3:4' | '16:9' | '9:16'
-export type Resolution = '1K' | '2K' | '4K' | '720p' | '1080p'
+export type Resolution = '1K' | '2K' | '3K' | '4K' | '720p' | '1080p'
 export type CanvasView = 'session' | 'history'
+export type ImageModel = 'doubao-seedream-5-0-pro-260628' | 'doubao-seedream-5-0-260128' | 'doubao-seedream-4-5-251128' | 'doubao-seedream-4-0-250828'
+export type VideoModel = 'doubao-seedance-2-0-260128' | 'doubao-seedance-2-0-fast-260128' | 'doubao-seedance-2-0-mini-260615'
 export type ThreeDModel = 'doubao-seed3d-2-0-260328' | 'hyper3d-gen2-260112'
 
 export interface FrameAsset {
@@ -36,14 +38,18 @@ export interface GenerationSettings {
   duration: number
   count: number
   styleId: string
+  imageModel?: ImageModel
+  videoModel?: VideoModel
   threeDModel?: ThreeDModel
   firstFrame?: FrameAsset
   lastFrame?: FrameAsset
+  referenceImages?: FrameAsset[]
 }
 
-export type SettingsSnapshot = Omit<GenerationSettings, 'firstFrame' | 'lastFrame'> & {
+export type SettingsSnapshot = Omit<GenerationSettings, 'firstFrame' | 'lastFrame' | 'referenceImages'> & {
   usedFirstFrame: boolean
   usedLastFrame: boolean
+  referenceImageCount: number
 }
 
 export interface GeneratedAsset {

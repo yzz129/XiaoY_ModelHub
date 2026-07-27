@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Aperture, Box, Clock3, Film, Image, KeyRound, Menu, PanelLeftClose, PanelLeftOpen, Plus, Settings, Sparkles, WandSparkles, X } from 'lucide-react'
-import { FrameUpload, PromptBox } from './components/Controls'
+import { FrameUpload, PromptBox, ReferenceImageUpload } from './components/Controls'
 import { OutputStage } from './components/OutputStage'
 import { SettingsDialog } from './components/SettingsDialog'
 import { VideoTaskStrip } from './components/VideoTaskStrip'
+import { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL, getGenerationModel, imageModels, videoModels } from './data/models'
 import { styleTemplates } from './data/templates'
 import { useVideoQueue } from './hooks/useVideoQueue'
 import { useThreeDQueue } from './hooks/useThreeDQueue'
 import { generateImage, hasApiKey, refreshAssetUrl } from './lib/ark'
 import { clearHistory, loadHistory, loadPreferences, saveHistory, savePreferences } from './lib/storage'
-import type { AspectRatio, CanvasView, GeneratedAsset, GenerationKind, GenerationMode, GenerationSettings, Resolution, SettingsSnapshot, ThreeDJob, ThreeDModel, VideoJob } from './types/generation'
+import { MAX_VIDEO_REFERENCE_IMAGES } from './lib/video'
+import type { AspectRatio, CanvasView, GeneratedAsset, GenerationKind, GenerationMode, GenerationSettings, ImageModel, Resolution, SettingsSnapshot, ThreeDJob, ThreeDModel, VideoJob, VideoModel } from './types/generation'
 
 const inspiration = [
   '一位身穿银白色未来服饰的旅行者，站在巨大的水镜前，晨雾穿过极简建筑，远处群山若隐若现',
@@ -17,11 +19,11 @@ const inspiration = [
   '白色陶瓷香水瓶悬浮在水面上，晨光、轻雾与细小涟漪，极简奢华产品摄影',
 ]
 
-const makeDefaults = (): GenerationSettings => ({ kind: 'image', mode: 'text', prompt: '', ratio: '16:9', resolution: '2K', duration: 5, count: 1, styleId: 'cinema', threeDModel: 'doubao-seed3d-2-0-260328' })
+const makeDefaults = (): GenerationSettings => ({ kind: 'image', mode: 'text', prompt: '', ratio: '16:9', resolution: '2K', duration: 5, count: 1, styleId: 'cinema', imageModel: DEFAULT_IMAGE_MODEL, videoModel: DEFAULT_VIDEO_MODEL, threeDModel: 'doubao-seed3d-2-0-260328' })
 const makeSessionId = () => crypto.randomUUID()
 
 function settingsFromSnapshot(snapshot: SettingsSnapshot): GenerationSettings {
-  return {
+  const restored: GenerationSettings = {
     kind: snapshot.kind,
     mode: snapshot.mode,
     prompt: snapshot.prompt,
@@ -30,8 +32,15 @@ function settingsFromSnapshot(snapshot: SettingsSnapshot): GenerationSettings {
     duration: snapshot.duration,
     count: snapshot.count,
     styleId: snapshot.styleId,
+    imageModel: snapshot.imageModel ?? DEFAULT_IMAGE_MODEL,
+    videoModel: snapshot.videoModel ?? DEFAULT_VIDEO_MODEL,
     threeDModel: snapshot.threeDModel,
   }
+  if (restored.kind !== '3d') {
+    const model = getGenerationModel(restored)
+    if (!model.resolutions.includes(restored.resolution)) restored.resolution = model.resolutions.includes('2K') ? '2K' : model.resolutions[0]
+  }
+  return restored
 }
 
 function App() {
@@ -58,6 +67,7 @@ function App() {
   const failedAssetRefreshesRef = useRef(new Set<string>())
   const [refreshingAssetIds, setRefreshingAssetIds] = useState<string[]>([])
   const template = useMemo(() => styleTemplates.find((item) => item.id === settings.styleId)!, [settings.styleId])
+  const activeGenerationModel = settings.kind === '3d' ? undefined : getGenerationModel(settings)
   const sessionAssets = history.filter((asset) => sessionAssetIds.includes(asset.id))
   const visibleAssets = canvasView === 'session' ? sessionAssets : history
   const addAsyncResult = useCallback((result: GeneratedAsset) => {
@@ -79,13 +89,25 @@ function App() {
   function focusControls() { setCanvasView('session'); setMobilePanel(true); window.setTimeout(() => promptRef.current?.focus(), 80) }
 
   function switchKind(kind: GenerationKind) {
-    patch({ kind, mode: kind === '3d' ? 'image-to-3d' : 'text', firstFrame: undefined, lastFrame: undefined, prompt: kind === '3d' ? '' : settings.prompt, resolution: kind === 'image' ? '2K' : kind === 'video' ? '1080p' : '2K', threeDModel: settings.threeDModel ?? 'doubao-seed3d-2-0-260328' })
+    const videoModel = videoModels.find((model) => model.id === settings.videoModel) ?? videoModels[0]
+    patch({ kind, mode: kind === '3d' ? 'image-to-3d' : 'text', firstFrame: undefined, lastFrame: undefined, referenceImages: undefined, prompt: kind === '3d' ? '' : settings.prompt, resolution: kind === 'image' ? '2K' : kind === 'video' ? (videoModel.resolutions.includes('1080p') ? '1080p' : '720p') : '2K', threeDModel: settings.threeDModel ?? 'doubao-seed3d-2-0-260328' })
     setFrameError(undefined)
   }
 
   function switchMode(mode: GenerationMode) {
-    patch({ mode, firstFrame: mode === 'text' ? undefined : settings.firstFrame, lastFrame: mode === 'first-last-frame' ? settings.lastFrame : undefined })
+    const usesFrame = mode === 'first-frame' || mode === 'first-last-frame' || mode === 'image-to-3d'
+    patch({ mode, firstFrame: usesFrame ? settings.firstFrame : undefined, lastFrame: mode === 'first-last-frame' ? settings.lastFrame : undefined, referenceImages: mode === 'reference-images' ? settings.referenceImages : undefined })
     setFrameError(undefined)
+  }
+
+  function selectImageModel(imageModel: ImageModel) {
+    const model = imageModels.find((item) => item.id === imageModel) ?? imageModels[0]
+    patch({ imageModel, resolution: model.resolutions.includes(settings.resolution) ? settings.resolution : (model.resolutions.includes('2K') ? '2K' : model.resolutions[0]) })
+  }
+
+  function selectVideoModel(videoModel: VideoModel) {
+    const model = videoModels.find((item) => item.id === videoModel) ?? videoModels[0]
+    patch({ videoModel, resolution: model.resolutions.includes(settings.resolution) ? settings.resolution : model.resolutions[0] })
   }
 
   function validate(next: GenerationSettings) {
@@ -94,8 +116,10 @@ function App() {
     if (next.kind !== '3d' && !next.prompt.trim()) { setPromptError('请先写下画面描述'); setImageError('还缺少画面描述'); promptRef.current?.focus(); return false }
     if (next.kind === '3d' && !next.firstFrame) { setFrameError('图片转 3D 需要上传一张参考图片'); setImageError('请先上传参考图片'); return false }
     if (next.kind === '3d' && next.firstFrame && (next.firstFrame.width < 300 || next.firstFrame.height < 300)) { setFrameError(`3D 参考图片至少需要 300 × 300px，当前为 ${next.firstFrame.width} × ${next.firstFrame.height}px`); setImageError('3D 参考图片尺寸过小'); return false }
-    if (next.kind === 'video' && next.mode !== 'text' && !next.firstFrame) { setFrameError('当前模式需要上传首帧'); setImageError('请补充视频首帧'); return false }
+    if (next.kind === 'video' && (next.mode === 'first-frame' || next.mode === 'first-last-frame') && !next.firstFrame) { setFrameError('当前模式需要上传首帧'); setImageError('请补充视频首帧'); return false }
     if (next.kind === 'video' && next.mode === 'first-last-frame' && !next.lastFrame) { setFrameError('首尾帧模式还需要尾帧'); setImageError('请补充视频尾帧'); return false }
+    if (next.kind === 'video' && next.mode === 'reference-images' && !next.referenceImages?.length) { setFrameError('参考图生成至少需要上传 1 张图片'); setImageError('请补充视频参考图'); return false }
+    if ((next.referenceImages?.length ?? 0) > MAX_VIDEO_REFERENCE_IMAGES) { setFrameError(`参考图最多上传 ${MAX_VIDEO_REFERENCE_IMAGES} 张`); setImageError('参考图数量超过上限'); return false }
     if (next.firstFrame && next.lastFrame) {
       const firstRatio = next.firstFrame.width / next.firstFrame.height
       const lastRatio = next.lastFrame.width / next.lastFrame.height
@@ -175,7 +199,7 @@ function App() {
 
   function reuse(asset: GeneratedAsset) {
     setSettings(settingsFromSnapshot(asset.settings)); setCanvasView('session'); setPanelCollapsed(false); setMobilePanel(true)
-    setNotice(asset.settings.usedFirstFrame || asset.settings.usedLastFrame ? '参数已复用，请重新上传原首尾帧' : '已复用完整生成参数')
+    setNotice(asset.settings.usedFirstFrame || asset.settings.usedLastFrame || asset.settings.referenceImageCount ? '参数已复用，请重新上传原参考图片' : '已复用完整生成参数')
     window.setTimeout(() => promptRef.current?.focus(), 80)
   }
 
@@ -195,7 +219,7 @@ function App() {
     setHistory((current) => current.filter((item) => item.id !== asset.id)); setSessionAssetIds((current) => current.filter((id) => id !== asset.id)); setNotice('作品已从本地历史删除')
   }
 
-  const modes = settings.kind === 'image' ? [{ id: 'text', label: '文字生成' }] : settings.kind === '3d' ? [{ id: 'image-to-3d', label: '图片转 3D' }] : [{ id: 'text', label: '文字生成' }, { id: 'first-frame', label: '首帧生成' }, { id: 'first-last-frame', label: '首尾帧' }]
+  const modes = settings.kind === 'image' ? [{ id: 'text', label: '文字生成' }] : settings.kind === '3d' ? [{ id: 'image-to-3d', label: '图片转 3D' }] : [{ id: 'text', label: '文字生成' }, { id: 'first-frame', label: '首帧生成' }, { id: 'first-last-frame', label: '首尾帧' }, { id: 'reference-images', label: '参考图生成' }]
   return <div className={`app-shell ${panelCollapsed ? 'panel-collapsed' : ''}`}>
     <aside className="sidebar" aria-label="主导航">
       <div className="brand"><Aperture size={27} /><span>MUSE</span></div>
@@ -209,7 +233,7 @@ function App() {
     <main className="workspace">
       <header className="topbar">
         <button type="button" className="mobile-menu" aria-label="打开创作参数" aria-expanded={mobilePanel} aria-controls="control-panel" onClick={() => setMobilePanel(true)}><Menu /></button>
-        <div className="workspace-title"><span>{canvasView === 'session' ? '创作工作台' : '作品历史'}</span><small>{settings.kind === 'image' ? 'Seedream 5.0 Pro' : settings.kind === 'video' ? 'Seedance 2.0' : 'Seed3D 2.0'}</small></div>
+        <div className="workspace-title"><span>{canvasView === 'session' ? '创作工作台' : '作品历史'}</span><small>{activeGenerationModel?.name ?? 'Seed3D 2.0'}</small></div>
         <div className="top-actions"><button type="button" className={`connection ${hasApiKey ? 'online' : ''}`} onClick={() => setSettingsOpen(true)}><i />{hasApiKey ? '方舟已连接' : '未配置 Key'}</button><button type="button" className="new-task top-new" onClick={newTask}><Plus /> 新建创作</button></div>
       </header>
 
@@ -223,13 +247,16 @@ function App() {
           {panelCollapsed ? <button className="expand-rail" type="button" aria-label="展开参数面板" onClick={() => setPanelCollapsed(false)}><PanelLeftOpen /></button> : <>
             <div className="panel-scroll">
               <section className="control-section"><div className="section-label"><span>创作方式</span><small>MODE</small></div><div className="mode-tabs">{modes.map((mode) => <button type="button" key={mode.id} aria-pressed={settings.mode === mode.id} className={settings.mode === mode.id ? 'active' : ''} onClick={() => switchMode(mode.id as GenerationMode)}>{mode.label}</button>)}</div></section>
-              {settings.kind === 'video' && settings.mode !== 'text' && <div className="frame-grid"><FrameUpload label="首帧" hint="JPG / PNG / WebP · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} />{settings.mode === 'first-last-frame' && <FrameUpload label="尾帧" hint="建议与首帧比例一致" value={settings.lastFrame} onChange={(lastFrame) => patch({ lastFrame })} disabled={!settings.firstFrame} error={settings.firstFrame ? frameError : undefined} />}</div>}
+              {settings.kind === 'video' && (settings.mode === 'first-frame' || settings.mode === 'first-last-frame') && <div className="frame-grid"><FrameUpload label="首帧" hint="JPG / PNG / WebP · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} />{settings.mode === 'first-last-frame' && <FrameUpload label="尾帧" hint="建议与首帧比例一致" value={settings.lastFrame} onChange={(lastFrame) => patch({ lastFrame })} disabled={!settings.firstFrame} error={settings.firstFrame ? frameError : undefined} />}</div>}
+              {settings.kind === 'video' && settings.mode === 'reference-images' && <ReferenceImageUpload value={settings.referenceImages ?? []} onChange={(referenceImages) => { patch({ referenceImages }); setFrameError(undefined) }} error={frameError} />}
               {settings.kind === '3d' && <div className="frame-grid single"><FrameUpload label="3D 参考图片" hint="不足 300 × 300px 自动白边补齐 · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} minWidth={300} minHeight={300} /></div>}
+              {settings.kind === 'image' && <section className="control-section compact"><div className="section-label"><span>图片模型</span><small>MODEL</small></div><div className="model-choice generation-model-choice">{imageModels.map((model) => <button type="button" key={model.id} aria-pressed={(settings.imageModel ?? DEFAULT_IMAGE_MODEL) === model.id} className={(settings.imageModel ?? DEFAULT_IMAGE_MODEL) === model.id ? 'active' : ''} onClick={() => selectImageModel(model.id)}><strong>{model.name}</strong><span>{model.description}</span><small>{model.id}</small></button>)}</div></section>}
+              {settings.kind === 'video' && <section className="control-section compact"><div className="section-label"><span>视频模型</span><small>MODEL</small></div><div className="model-choice generation-model-choice">{videoModels.map((model) => <button type="button" key={model.id} aria-pressed={(settings.videoModel ?? DEFAULT_VIDEO_MODEL) === model.id} className={(settings.videoModel ?? DEFAULT_VIDEO_MODEL) === model.id ? 'active' : ''} onClick={() => selectVideoModel(model.id)}><strong>{model.name}</strong><span>{model.description}</span><small>{model.id}</small></button>)}</div></section>}
               {settings.kind === '3d' && <section className="control-section compact"><div className="section-label"><span>3D 模型</span><small>MODEL</small></div><div className="model-choice">{([['doubao-seed3d-2-0-260328', 'Seed3D 2.0'], ['hyper3d-gen2-260112', 'Hyper3D Gen2']] as Array<[ThreeDModel, string]>).map(([model, label]) => <button type="button" key={model} aria-pressed={(settings.threeDModel ?? 'doubao-seed3d-2-0-260328') === model} className={(settings.threeDModel ?? 'doubao-seed3d-2-0-260328') === model ? 'active' : ''} onClick={() => patch({ threeDModel: model })}><strong>{label}</strong><small>{model}</small></button>)}</div></section>}
               <section className="control-section"><div className="section-label"><label htmlFor="generation-prompt">{settings.kind === '3d' ? '输出命令（可选）' : '画面描述'}</label><small>{settings.kind === '3d' ? '3D OPTIONS' : 'PROMPT'}</small></div><PromptBox ref={promptRef} value={settings.prompt} onChange={(prompt) => { patch({ prompt }); setPromptError(undefined) }} onInspire={() => patch({ prompt: inspiration[Math.floor(Math.random() * inspiration.length)] })} error={promptError} threeD={settings.kind === '3d'} /></section>
               {settings.kind !== '3d' && <section className="control-section"><div className="section-label"><span>视觉主题</span><small>STYLE</small></div><div className="template-preview" style={{ background: template.gradient }}><div><small>{template.eyebrow}</small><strong>{template.name}</strong><p>{template.description}</p></div><span>已应用</span></div><div className="template-row">{styleTemplates.map((item) => <button type="button" key={item.id} aria-pressed={settings.styleId === item.id} className={settings.styleId === item.id ? 'active' : ''} onClick={() => patch({ styleId: item.id })} style={{ background: item.gradient }}><span>{item.name}</span></button>)}</div></section>}
               {settings.kind !== '3d' && <section className="control-section"><div className="section-label"><span>画面比例</span><small>{settings.ratio}</small></div><div className="ratio-row">{(['1:1', '4:3', '3:4', '16:9', '9:16'] as AspectRatio[]).map((ratio) => <button type="button" key={ratio} aria-pressed={settings.ratio === ratio} className={settings.ratio === ratio ? 'active' : ''} onClick={() => patch({ ratio })}><i style={{ aspectRatio: ratio.replace(':', '/') }} />{ratio}</button>)}</div></section>}
-              {settings.kind !== '3d' && <section className="control-section compact"><div className="section-label"><span>输出清晰度</span><small>QUALITY</small></div><div className="chips-row">{(settings.kind === 'image' ? ['1K', '2K', '4K'] : ['720p', '1080p']).map((resolution) => <button type="button" aria-pressed={settings.resolution === resolution} className={settings.resolution === resolution ? 'active' : ''} key={resolution} onClick={() => patch({ resolution: resolution as Resolution })}>{resolution}</button>)}</div></section>}
+              {settings.kind !== '3d' && <section className="control-section compact"><div className="section-label"><span>输出清晰度</span><small>QUALITY</small></div><div className="chips-row">{activeGenerationModel!.resolutions.map((resolution) => <button type="button" aria-pressed={settings.resolution === resolution} className={settings.resolution === resolution ? 'active' : ''} key={resolution} onClick={() => patch({ resolution: resolution as Resolution })}>{resolution}</button>)}</div></section>}
               {settings.kind === 'video' && <section className="control-section compact"><div className="section-label"><span>视频时长</span><small>DURATION</small></div><div className="chips-row">{[5, 10, 15].map((duration) => <button type="button" aria-pressed={settings.duration === duration} className={settings.duration === duration ? 'active' : ''} key={duration} onClick={() => patch({ duration })}>{duration} 秒</button>)}</div></section>}
             </div>
             <div className="generate-wrap">{!hasApiKey && <button type="button" className="key-warning" onClick={() => setSettingsOpen(true)}><KeyRound /> 在 .env.local 中配置方舟 API Key</button>}<button className="generate-button" type="button" onClick={() => void submit()} disabled={settings.kind === 'image' && imageLoading} aria-busy={settings.kind === 'image' && imageLoading}><span><Sparkles />{settings.kind === 'video' ? '加入视频队列' : settings.kind === '3d' ? '加入 3D 队列' : imageLoading ? '创作中…' : '生成图片'}</span><b>{settings.kind === 'image' ? 'IMAGE' : settings.kind === 'video' ? 'VIDEO' : '3D'}</b></button></div>

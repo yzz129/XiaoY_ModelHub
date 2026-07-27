@@ -10,7 +10,7 @@ export const DEFAULT_MAX_3D_CONCURRENCY = 2
 
 function fallbackSettings(asset: Partial<GeneratedAsset>): SettingsSnapshot {
   const kind = asset.kind === 'video' || asset.kind === '3d' ? asset.kind : 'image'
-  return { kind, mode: kind === '3d' ? 'image-to-3d' : 'text', prompt: typeof asset.prompt === 'string' ? asset.prompt : '', ratio: '16:9', resolution: kind === 'video' ? '1080p' : '2K', duration: 5, count: 1, styleId: 'cinema', usedFirstFrame: kind === '3d', usedLastFrame: false }
+  return { kind, mode: kind === '3d' ? 'image-to-3d' : 'text', prompt: typeof asset.prompt === 'string' ? asset.prompt : '', ratio: '16:9', resolution: kind === 'video' ? '1080p' : '2K', duration: 5, count: 1, styleId: 'cinema', imageModel: 'doubao-seedream-5-0-pro-260628', videoModel: 'doubao-seedance-2-0-260128', usedFirstFrame: kind === '3d', usedLastFrame: false, referenceImageCount: 0 }
 }
 
 function normalizeAsset(value: unknown): GeneratedAsset | null {

@@ -1,22 +1,21 @@
 import type { GenerationSettings, GeneratedAsset, PendingThreeDTask, PendingVideoTask, SettingsSnapshot } from '../types/generation'
 import { compilePrompt } from './prompt'
 import { styleTemplates } from '../data/templates'
+import { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL, imageModels, videoModels } from '../data/models'
 
 const config = {
   apiKey: import.meta.env.VITE_ARK_API_KEY ?? '',
   baseUrl: import.meta.env.VITE_ARK_BASE_URL ?? 'https://ark.cn-beijing.volces.com/api/v3',
-  imageModel: import.meta.env.VITE_ARK_IMAGE_MODEL ?? 'doubao-seedream-5-0-pro-260628',
-  videoModel: import.meta.env.VITE_ARK_VIDEO_MODEL ?? 'doubao-seedance-2-0-260128',
   threeDModel: import.meta.env.VITE_ARK_3D_MODEL ?? 'doubao-seed3d-2-0-260328',
   hyperThreeDModel: import.meta.env.VITE_ARK_HYPER3D_MODEL ?? 'hyper3d-gen2-260112',
 }
 
 export const hasApiKey = Boolean(config.apiKey)
-export const arkModels = { image: config.imageModel, video: config.videoModel, threeD: config.threeDModel, hyperThreeD: config.hyperThreeDModel }
+export const arkModels = { image: DEFAULT_IMAGE_MODEL, video: DEFAULT_VIDEO_MODEL, threeD: config.threeDModel, hyperThreeD: config.hyperThreeDModel }
 
 function snapshot(settings: GenerationSettings): SettingsSnapshot {
-  const { firstFrame, lastFrame, ...values } = settings
-  return { ...values, usedFirstFrame: Boolean(firstFrame), usedLastFrame: Boolean(lastFrame) }
+  const { firstFrame, lastFrame, referenceImages, ...values } = settings
+  return { ...values, usedFirstFrame: Boolean(firstFrame), usedLastFrame: Boolean(lastFrame), referenceImageCount: referenceImages?.length ?? 0 }
 }
 
 async function arkFetch<T>(path: string, init: RequestInit): Promise<T> {
@@ -48,9 +47,10 @@ async function arkFetch<T>(path: string, init: RequestInit): Promise<T> {
 export async function generateImage(settings: GenerationSettings, sessionId: string, signal?: AbortSignal): Promise<GeneratedAsset[]> {
   const template = styleTemplates.find((item) => item.id === settings.styleId)
   const compiledPrompt = compilePrompt(settings, template)
+  const imageModel = imageModels.find((model) => model.id === settings.imageModel)?.id ?? DEFAULT_IMAGE_MODEL
   const response = await arkFetch<{ data?: Array<{ url?: string; b64_json?: string }> }>('/images/generations', {
     method: 'POST', signal,
-    body: JSON.stringify({ model: config.imageModel, prompt: compiledPrompt, size: settings.ratio === '1:1' ? settings.resolution : `${settings.resolution} ${settings.ratio}`, n: 1, response_format: 'url', watermark: false }),
+    body: JSON.stringify({ model: imageModel, prompt: compiledPrompt, size: settings.ratio === '1:1' ? settings.resolution : `${settings.resolution} ${settings.ratio}`, n: 1, response_format: 'url', watermark: false }),
   })
   return (response.data ?? []).flatMap((item) => {
     const url = item.url ?? (item.b64_json ? `data:image/png;base64,${item.b64_json}` : '')
@@ -80,12 +80,14 @@ interface ThreeDTaskResponse {
 export async function createVideoTask(settings: GenerationSettings, sessionId: string, signal?: AbortSignal): Promise<PendingVideoTask> {
   const template = styleTemplates.find((item) => item.id === settings.styleId)
   const compiledPrompt = compilePrompt(settings, template)
+  const videoModel = videoModels.find((model) => model.id === settings.videoModel)?.id ?? DEFAULT_VIDEO_MODEL
   const content: Array<Record<string, unknown>> = [{ type: 'text', text: compiledPrompt }]
   if (settings.firstFrame) content.push({ type: 'image_url', image_url: { url: settings.firstFrame.dataUrl }, role: 'first_frame' })
   if (settings.lastFrame) content.push({ type: 'image_url', image_url: { url: settings.lastFrame.dataUrl }, role: 'last_frame' })
+  settings.referenceImages?.forEach((image) => content.push({ type: 'image_url', image_url: { url: image.dataUrl }, role: 'reference_image' }))
   const response = await arkFetch<VideoTaskResponse>('/contents/generations/tasks', {
     method: 'POST', signal,
-    body: JSON.stringify({ model: config.videoModel, content, duration: settings.duration, ratio: settings.ratio, resolution: settings.resolution, watermark: false }),
+    body: JSON.stringify({ model: videoModel, content, duration: settings.duration, ratio: settings.ratio, resolution: settings.resolution, watermark: false }),
   })
   const taskId = response.id ?? response.task_id
   if (!taskId) throw new Error('方舟未返回视频任务 ID，请核对当前 API 协议')

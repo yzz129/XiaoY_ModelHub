@@ -1,0 +1,1 @@
+export const MAX_VIDEO_REFERENCE_IMAGES = 9
