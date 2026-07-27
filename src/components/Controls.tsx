@@ -150,18 +150,19 @@ interface PromptBoxProps {
   value: string
   onChange: (value: string) => void
   onInspire: () => void
+  maxLength: number
   error?: string
   threeD?: boolean
 }
 
-export const PromptBox = forwardRef<HTMLTextAreaElement, PromptBoxProps>(function PromptBox({ value, onChange, onInspire, error, threeD }, ref) {
+export const PromptBox = forwardRef<HTMLTextAreaElement, PromptBoxProps>(function PromptBox({ value, onChange, onInspire, maxLength, error, threeD }, ref) {
   return (
     <div className={`prompt-box ${error ? 'invalid' : ''}`}>
       <textarea ref={ref} id="generation-prompt" value={value} onChange={(event) => onChange(event.target.value)}
-        placeholder={threeD ? '留空使用默认：--subdivisionlevel medium --fileformat glb' : '描述主体、场景、光线、镜头与情绪，让画面更接近你的想象…'} maxLength={1200}
+        placeholder={threeD ? '留空使用默认：--subdivisionlevel medium --fileformat glb' : '描述主体、场景、光线、镜头与情绪，让画面更接近你的想象…'} maxLength={maxLength}
         aria-invalid={Boolean(error)} aria-describedby={error ? 'prompt-error' : 'prompt-count'} />
       <div className="prompt-toolbar">
-        <span id="prompt-count">{value.length} / 1200</span>
+        <span id="prompt-count">{value.length.toLocaleString()} / {maxLength.toLocaleString()}</span>
         {!threeD && <button type="button" onClick={onInspire}><Sparkles size={16} /> 灵感扩写</button>}
       </div>
       {error && <small className="field-error" id="prompt-error">{error}</small>}
