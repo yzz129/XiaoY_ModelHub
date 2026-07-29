@@ -37,7 +37,7 @@ interface NavButtonProps {
 
 function NavButton({ active, badge, icon: Icon, label, onClick }: NavButtonProps) {
   return (
-    <button type="button" className={`portal-nav-item ${active ? 'active' : ''}`} onClick={onClick}>
+    <button type="button" className={`portal-nav-item ${active ? 'active' : ''}`} aria-label={label} title={label} onClick={onClick}>
       <Icon />
       <span>{label}</span>
       {badge !== undefined && <b>{badge}</b>}

@@ -1817,3 +1817,170 @@ dialog.model-center.marketplace:not([open]) {
   .chat-workspace { min-height: calc(100vh - 382px); }
   .voice-workspace { padding: 26px 18px; }
 }
+
+/* Final cross-page polish: keep every scroll area usable without visible rails. */
+html,
+body,
+* {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+}
+
+/* Settings belongs to the light portal theme, including its information cards. */
+.portal-theme .settings-dialog {
+  max-height: min(90dvh, 820px);
+  overflow: auto;
+  border-color: #e0e3eb;
+  background: #fff;
+  color: #2d3245;
+  box-shadow: 0 28px 90px rgba(41, 35, 67, .24);
+}
+
+.portal-theme .settings-dialog .dialog-head {
+  border-color: #eceef3;
+}
+
+.portal-theme .settings-dialog .dialog-head button {
+  background: #f0f1f5;
+  color: #565d70;
+}
+
+.portal-theme .settings-dialog .connection-card,
+.portal-theme .settings-dialog .concurrency-row,
+.portal-theme .settings-dialog .storage-row {
+  border-color: #e2e5ed;
+  background: #f7f8fc;
+  color: #30364b;
+}
+
+.portal-theme .settings-dialog .connection-card p,
+.portal-theme .settings-dialog .concurrency-row p,
+.portal-theme .settings-dialog .storage-row p {
+  color: #7b8499;
+}
+
+.portal-theme .settings-dialog .status-dot {
+  background: #ece8fb;
+  color: #7852e7;
+}
+
+.portal-theme .settings-dialog .status-dot.online {
+  background: #e9f8ef;
+  color: #34a765;
+}
+
+.portal-theme .settings-dialog .model-list div {
+  border-color: #eceef3;
+}
+
+.portal-theme .settings-dialog .model-list dt {
+  color: #657087;
+}
+
+.portal-theme .settings-dialog .model-list dd {
+  color: #8a93a5;
+}
+
+.portal-theme .settings-dialog .concurrency-options button {
+  border-color: #dfe2ea;
+  background: #fff;
+  color: #697287;
+}
+
+.portal-theme .settings-dialog .concurrency-options button.active {
+  border-color: #8058ed;
+  background: #eee9ff;
+  color: #7045df;
+}
+
+.portal-theme .settings-dialog .warning-card {
+  border-color: #f0dfb8;
+  background: #fffaf0;
+  color: #8b6a24;
+}
+
+.portal-theme .settings-dialog .warning-card strong {
+  color: #765716;
+}
+
+.portal-theme .settings-dialog .storage-row button {
+  border-color: #f0cbd1;
+  background: #fff3f5;
+  color: #c14f60;
+}
+
+@media (max-width: 800px) {
+  .portal-theme .studio > .control-panel {
+    position: fixed;
+    z-index: 30;
+    top: 50px;
+    bottom: 0;
+    left: 64px;
+    width: calc(100vw - 64px);
+    max-width: none;
+    transform: translateX(calc(-100% - 64px));
+  }
+
+  .portal-theme .studio > .control-panel.open {
+    transform: none;
+  }
+
+  .portal-theme .canvas-new {
+    width: 38px;
+    min-width: 38px;
+    padding: 0;
+    justify-content: center;
+    font-size: 0;
+  }
+
+  .marketplace-results-head {
+    gap: 8px;
+  }
+
+  .marketplace-results-head > div {
+    min-width: 0;
+  }
+
+  .marketplace-results-head strong {
+    display: none;
+  }
+
+  .marketplace-results-head span,
+  .marketplace-results-head p {
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 720px) {
+  .creative-workspace-shell {
+    height: 100dvh;
+    min-height: 0;
+  }
+
+  .creative-studio-grid,
+  .voice-grid {
+    height: calc(100dvh - 92px);
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(190px, 36%) minmax(0, 1fr);
+  }
+
+  .creative-config-panel {
+    min-height: 0;
+    max-height: none;
+  }
+
+  .chat-workspace,
+  .voice-workspace {
+    min-height: 0;
+  }
+}
