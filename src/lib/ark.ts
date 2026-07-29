@@ -12,6 +12,8 @@ const config = {
   siliconFlowBaseUrl: (import.meta.env.VITE_SILICONFLOW_BASE_URL ?? 'https://api.siliconflow.cn/v1').replace(/\/$/, ''),
   cloudflareApiToken: import.meta.env.VITE_CLOUDFLARE_API_TOKEN ?? '',
   cloudflareAccountId: import.meta.env.VITE_CLOUDFLARE_ACCOUNT_ID ?? '',
+  pollinationsApiKey: import.meta.env.VITE_POLLINATIONS_API_KEY ?? '',
+  pollinationsBaseUrl: (import.meta.env.VITE_POLLINATIONS_BASE_URL ?? 'https://gen.pollinations.ai').replace(/\/$/, ''),
   threeDModel: import.meta.env.VITE_ARK_3D_MODEL ?? 'doubao-seed3d-2-0-260328',
   hyperThreeDModel: import.meta.env.VITE_ARK_HYPER3D_MODEL ?? 'hyper3d-gen2-260112',
 }
@@ -20,7 +22,8 @@ export const hasArkApiKey = Boolean(config.apiKey)
 export const hasAgnesApiKey = Boolean(config.agnesApiKey)
 export const hasSiliconFlowApiKey = Boolean(config.siliconFlowApiKey)
 export const hasCloudflareApiKey = Boolean(config.cloudflareApiToken && config.cloudflareAccountId)
-export const hasApiKey = hasArkApiKey || hasAgnesApiKey || hasSiliconFlowApiKey || hasCloudflareApiKey
+export const hasPollinationsApiKey = Boolean(config.pollinationsApiKey)
+export const hasApiKey = hasArkApiKey || hasAgnesApiKey || hasSiliconFlowApiKey || hasCloudflareApiKey || hasPollinationsApiKey
 export const arkModels = { image: DEFAULT_IMAGE_MODEL, video: DEFAULT_VIDEO_MODEL, threeD: config.threeDModel, hyperThreeD: config.hyperThreeDModel }
 
 function providerForSettings(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel'>) {
@@ -35,7 +38,8 @@ export function hasApiKeyForSettings(settings: Pick<GenerationSettings, 'kind' |
   return provider === 'agnes' ? hasAgnesApiKey
     : provider === 'siliconflow' ? hasSiliconFlowApiKey
       : provider === 'cloudflare' ? hasCloudflareApiKey
-        : hasArkApiKey
+        : provider === 'pollinations' ? hasPollinationsApiKey
+          : hasArkApiKey
 }
 
 export function getProviderName(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel'>) {
@@ -43,7 +47,8 @@ export function getProviderName(settings: Pick<GenerationSettings, 'kind' | 'ima
   return provider === 'agnes' ? 'Agnes AI'
     : provider === 'siliconflow' ? 'SiliconFlow'
       : provider === 'cloudflare' ? 'Cloudflare Workers AI'
-        : '火山方舟'
+        : provider === 'pollinations' ? 'Pollinations'
+          : '火山方舟'
 }
 
 function snapshot(settings: GenerationSettings): SettingsSnapshot {
@@ -188,6 +193,7 @@ export async function generateImage(settings: GenerationSettings, sessionId: str
   const imageOption = imageModels.find((model) => model.id === settings.imageModel) ?? imageModels[0]
   const imageModel = imageOption.apiModel ?? imageOption.id ?? DEFAULT_IMAGE_MODEL
   const referenceImage = settings.firstFrame?.dataUrl
+  const imageSizes: Record<string, string> = { '1:1': '1024x1024', '4:3': '1024x768', '3:4': '768x1024', '16:9': '1024x576', '9:16': '576x1024' }
   let response: { data?: Array<{ url?: string; b64_json?: string }>; images?: Array<{ url?: string }>; result?: { image?: string } }
   if (imageOption.provider === 'agnes') {
     response = await durableJsonPost<{ data?: Array<{ url?: string; b64_json?: string }> }>(
@@ -198,12 +204,19 @@ export async function generateImage(settings: GenerationSettings, sessionId: str
         signal,
       )
   } else if (imageOption.provider === 'siliconflow') {
-    const imageSizes: Record<string, string> = { '1:1': '1024x1024', '4:3': '1024x768', '3:4': '768x1024', '16:9': '1024x576', '9:16': '576x1024' }
     response = await durableJsonPost<{ images?: Array<{ url?: string }> }>(
       `image-${generationJobId}`,
       `${config.siliconFlowBaseUrl}/images/generations`,
       config.siliconFlowApiKey,
       { model: imageModel, prompt: compiledPrompt, image_size: imageSizes[settings.ratio], batch_size: 1, num_inference_steps: 20, guidance_scale: 7.5 },
+      signal,
+    )
+  } else if (imageOption.provider === 'pollinations') {
+    response = await durableJsonPost<{ data?: Array<{ url?: string; b64_json?: string }> }>(
+      `image-${generationJobId}`,
+      `${config.pollinationsBaseUrl}/v1/images/generations`,
+      config.pollinationsApiKey,
+      { model: imageModel, prompt: compiledPrompt, n: 1, size: imageSizes[settings.ratio], response_format: 'url' },
       signal,
     )
   } else if (imageOption.provider === 'cloudflare') {

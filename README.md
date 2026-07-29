@@ -1,10 +1,10 @@
 # 小Y中转站
 
-一个基于 React、TypeScript 和 Vite 构建的本地 AI 图片、视频与 3D 内容生成工作台，支持火山方舟与 Agnes AI 模型。
+一个基于 React、TypeScript 和 Vite 构建的本地 AI 图片、视频与 3D 内容生成工作台，支持火山方舟、Agnes AI、SiliconFlow、Cloudflare Workers AI 与 Pollinations 模型。
 
 ## 功能
 
-- 图片生成与编辑：支持 4 个 Seedream 模型和 Agnes Image 2.0/2.1 Flash，可上传参考图，并配置画面比例、清晰度和视觉主题
+- 图片生成与编辑：支持 Seedream、Agnes Image、Kolors、FLUX、Z-Image 与 Qwen Image；兼容的模型可上传参考图，并配置画面比例、清晰度和视觉主题
 - 文生视频：支持 3 个 Seedance 2.0 模型和 Agnes Video V2.0；Seedance 支持文字、首帧、首尾帧和最多 9 张参考图模式
 - 多服务商切换：在模型选择器中直接切换火山方舟或 Agnes AI，并按当前模型检查对应 API Key
 - 默认模型广场首页：采用浅色紫色控制台布局，按语言、语音、视觉、向量和智能路由五大类展示常用模型，支持搜索、平台与费用筛选
@@ -25,7 +25,7 @@
 
 | 类型 | 可选模型 | 提示词上限 |
 | --- | --- | --- |
-| 图片 | Seedream 5.0 Pro、5.0 Lite、4.5、4.0；Agnes Image 2.0/2.1 Flash；SiliconFlow Kolors；Cloudflare FLUX.1 Schnell | 最高 32,000 字符，按模型动态调整 |
+| 图片 | Seedream 5.0 Pro、5.0 Lite、4.5、4.0；Agnes Image 2.0/2.1 Flash；SiliconFlow Kolors；Cloudflare FLUX.1 Schnell；Pollinations Z-Image、FLUX、Qwen Image | 最高 32,000 字符，按模型动态调整 |
 | 视频 | Seedance 2.0、2.0 Fast、2.0 Mini；Agnes Video V2.0 | 20,000 字符 |
 | 3D | Seed3D 2.0、Hyper3D Gen2 | 1,200 字符 |
 
@@ -76,6 +76,9 @@ VITE_SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
 
 VITE_CLOUDFLARE_API_TOKEN=你的Cloudflare Workers AI Token
 VITE_CLOUDFLARE_ACCOUNT_ID=你的Cloudflare Account ID
+
+VITE_POLLINATIONS_API_KEY=你的Pollinations APIKey
+VITE_POLLINATIONS_BASE_URL=https://gen.pollinations.ai
 ```
 
 只使用其中一个服务商时，其他服务商的 API Key 可以留空；3D 生成目前仍使用火山方舟。模型中心还识别 `VITE_MODELSCOPE_API_KEY`、`VITE_GEMINI_API_KEY`、`VITE_GROQ_API_KEY`、`VITE_OPENROUTER_API_KEY`、`VITE_HUGGINGFACE_TOKEN`、`VITE_DASHSCOPE_API_KEY`、`VITE_POLLINATIONS_API_KEY`、`VITE_ELEVENLABS_API_KEY`、`VITE_JINA_API_KEY` 和 `VITE_COHERE_API_KEY`，完整示例见 `.env.example`。
@@ -130,6 +133,7 @@ npm run dev
 
 - SiliconFlow `Kwai-Kolors/Kolors`：`POST /v1/images/generations`。
 - Cloudflare Workers AI `@cf/black-forest-labs/flux-1-schnell`：需要 API Token 和 Account ID。
+- Pollinations `zimage`、`flux`、`qwen-image`：使用统一的 `POST /v1/images/generations` 接口，需要配置 `VITE_POLLINATIONS_API_KEY`。当前按“有免费额度”标注，不代表无限免费。
 
 模型广场中的“目录”条目已经完成分类、费用说明和配置检测，但尚未接入当前图片/视频画布的专用输入输出流程；“已接入”条目可以直接生成。模型 ID 和免费策略会变化，使用前请通过卡片中的官方文档确认。
 

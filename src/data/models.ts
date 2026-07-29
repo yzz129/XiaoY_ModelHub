@@ -5,7 +5,7 @@ export interface GenerationModelOption<T extends ImageModel | VideoModel> {
   apiModel?: string
   name: string
   description: string
-  provider: 'ark' | 'agnes' | 'siliconflow' | 'cloudflare'
+  provider: 'ark' | 'agnes' | 'siliconflow' | 'cloudflare' | 'pollinations'
   resolutions: Resolution[]
   maxPromptLength: number
   supportsReferenceImage?: boolean
@@ -21,6 +21,9 @@ export const imageModels: GenerationModelOption<ImageModel>[] = [
   { id: 'agnes-image-2.1-flash', name: 'Agnes Image 2.1 Flash', description: 'Agnes AI · 免费核心模型', provider: 'agnes', resolutions: ['1K', '2K', '3K', '4K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'free' },
   { id: 'siliconflow-kolors', apiModel: 'Kwai-Kolors/Kolors', name: 'Kolors', description: 'SiliconFlow · 费用以模型页为准', provider: 'siliconflow', resolutions: ['1K'], maxPromptLength: 2048, pricing: 'variable' },
   { id: 'cloudflare-flux-schnell', apiModel: '@cf/black-forest-labs/flux-1-schnell', name: 'FLUX.1 Schnell', description: 'Cloudflare · 每日免费额度', provider: 'cloudflare', resolutions: ['1K'], maxPromptLength: 2048, pricing: 'free-quota' },
+  { id: 'pollinations-zimage', apiModel: 'zimage', name: 'Z-Image', description: 'Pollinations · 赠送额度可用', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, pricing: 'free-quota' },
+  { id: 'pollinations-flux', apiModel: 'flux', name: 'FLUX', description: 'Pollinations · 赠送额度可用', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, pricing: 'free-quota' },
+  { id: 'pollinations-qwen-image', apiModel: 'qwen-image', name: 'Qwen Image', description: 'Pollinations · 中文与文字生成', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, pricing: 'free-quota' },
 ]
 
 export const videoModels: GenerationModelOption<VideoModel>[] = [

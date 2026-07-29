@@ -76,9 +76,9 @@ function App() {
   const visibleImageModels = useMemo(() => {
     const preferredIds = [
       settings.imageModel ?? DEFAULT_IMAGE_MODEL,
-      DEFAULT_IMAGE_MODEL,
       'agnes-image-2.1-flash',
-      'siliconflow-kolors',
+      'pollinations-zimage',
+      'pollinations-flux',
       'cloudflare-flux-schnell',
     ]
     return preferredIds
