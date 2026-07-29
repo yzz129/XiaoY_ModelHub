@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Aperture, Box, Clock3, Film, Image, KeyRound, LibraryBig, Menu, PanelLeftClose, PanelLeftOpen, Plus, Settings, Sparkles, WandSparkles, X } from 'lucide-react'
+import { Box, Film, Image, KeyRound, Menu, PanelLeftClose, PanelLeftOpen, Plus, Sparkles, X } from 'lucide-react'
 import { FrameUpload, PromptBox, ReferenceImageUpload } from './components/Controls'
 import { ModelCenter, type ModelFamily } from './components/ModelCenter'
 import { OutputStage } from './components/OutputStage'
+import { PortalSidebar, type PortalView } from './components/PortalSidebar'
 import { SettingsDialog } from './components/SettingsDialog'
 import { VideoTaskStrip } from './components/VideoTaskStrip'
 import { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL, getGenerationModel, getPromptLimit, imageModels, videoModels } from './data/models'
@@ -62,7 +63,7 @@ function App() {
   const [mobilePanel, setMobilePanel] = useState(false)
   const [panelCollapsed, setPanelCollapsed] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [modelCenterOpen, setModelCenterOpen] = useState(false)
+  const [portalView, setPortalView] = useState<PortalView>('marketplace')
   const [modelCenterFamily, setModelCenterFamily] = useState<ModelFamily>('language')
   const [notice, setNotice] = useState('')
   const [maxVideoConcurrency, setMaxVideoConcurrency] = useState(() => loadPreferences().maxVideoConcurrency)
@@ -120,10 +121,18 @@ function App() {
   }, [mobilePanel])
 
   function patch(next: Partial<GenerationSettings>) { setSettings((current) => ({ ...current, ...next })); setImageError(undefined) }
-  function focusControls() { setCanvasView('session'); setMobilePanel(true); window.setTimeout(() => promptRef.current?.focus(), 80) }
+  function focusControls() { setPortalView('studio'); setCanvasView('session'); setMobilePanel(true); window.setTimeout(() => promptRef.current?.focus(), 80) }
   function openModelCenter(family: ModelFamily) {
     setModelCenterFamily(family)
-    setModelCenterOpen(true)
+    setPortalView('marketplace')
+    setMobilePanel(false)
+  }
+
+  function openStudio(kind: GenerationKind) {
+    setPortalView('studio')
+    setCanvasView('session')
+    switchKind(kind)
+    if (window.innerWidth <= 800) setMobilePanel(true)
   }
 
   function switchKind(kind: GenerationKind) {
@@ -179,7 +188,7 @@ function App() {
     } else {
       return
     }
-    setModelCenterOpen(false)
+    setPortalView('studio')
     setPanelCollapsed(false)
     setCanvasView('session')
     setNotice(`已切换到 ${model.name}`)
@@ -294,18 +303,23 @@ function App() {
       : settings.videoModel === 'agnes-video-v2.0'
         ? [{ id: 'text', label: '文字生成' }]
         : [{ id: 'text', label: '文字生成' }, { id: 'first-frame', label: '首帧生成' }, { id: 'first-last-frame', label: '首尾帧' }, { id: 'reference-images', label: '参考图生成' }]
-  return <div className={`app-shell ${panelCollapsed ? 'panel-collapsed' : ''}`}>
-    <aside className="sidebar" aria-label="主导航">
-      <div className="brand"><Aperture size={27} /><span>MUSE</span></div>
-      <nav>
-        <button type="button" className={`nav-item ${canvasView === 'session' ? 'active' : ''}`} aria-current={canvasView === 'session' ? 'page' : undefined} onClick={focusControls}><WandSparkles /><span>创作</span></button>
-        <button type="button" className={`nav-item ${canvasView === 'history' ? 'active' : ''}`} aria-current={canvasView === 'history' ? 'page' : undefined} onClick={() => setCanvasView('history')}><Clock3 /><span>历史</span><b>{history.length}</b></button>
-        <button type="button" className="nav-item" onClick={() => openModelCenter('language')}><LibraryBig /><span>模型中心</span><b>{catalogModels.length}</b></button>
-      </nav>
-      <div className="sidebar-bottom"><button type="button" className="nav-item" onClick={() => setSettingsOpen(true)}><Settings /><span>设置</span></button><div className="profile"><span>MS</span><div><strong>Muse Studio</strong><small>Local workspace</small></div></div></div>
-    </aside>
+  return <div className={`app-shell portal-theme ${panelCollapsed ? 'panel-collapsed' : ''}`}>
+    <PortalSidebar
+      view={portalView}
+      kind={settings.kind}
+      historyActive={portalView === 'studio' && canvasView === 'history'}
+      historyCount={history.length}
+      modelCount={catalogModels.length}
+      onMarketplace={(family = 'language') => openModelCenter(family)}
+      onStudio={openStudio}
+      onHistory={() => { setPortalView('studio'); setCanvasView('history'); setMobilePanel(false) }}
+      onSettings={() => setSettingsOpen(true)}
+      onUnavailable={(label) => setNotice(`${label} 正在接入，当前版本暂未开放`)}
+    />
 
-    <main className="workspace">
+    {portalView === 'marketplace'
+      ? <main className="marketplace-page-shell"><ModelCenter embedded initialFamily={modelCenterFamily} onUseModel={useCatalogModel} /></main>
+      : <main className="workspace">
       <header className="topbar">
         <button type="button" className="mobile-menu" aria-label="打开创作参数" aria-expanded={mobilePanel} aria-controls="control-panel" onClick={() => setMobilePanel(true)}><Menu /></button>
         <div className="workspace-title"><span>{canvasView === 'session' ? '创作工作台' : '作品历史'}</span><small>{activeGenerationModel?.name ?? 'Seed3D 2.0'}</small></div>
@@ -347,10 +361,9 @@ function App() {
           <div className="canvas-foot"><span>素材文件保存在 output 分类目录，作品索引保存在当前浏览器</span><span>Powered by Volcengine Ark</span></div>
         </section>
       </div>
-    </main>
-    {mobilePanel && <button type="button" className="drawer-close" aria-label="关闭参数面板" onClick={() => setMobilePanel(false)}><X /></button>}
+    </main>}
+    {portalView === 'studio' && mobilePanel && <button type="button" className="drawer-close" aria-label="关闭参数面板" onClick={() => setMobilePanel(false)}><X /></button>}
     <SettingsDialog open={settingsOpen} maxVideoConcurrency={maxVideoConcurrency} maxThreeDConcurrency={maxThreeDConcurrency} onVideoConcurrencyChange={(value) => { const next = savePreferences({ maxVideoConcurrency: value, maxThreeDConcurrency }); setMaxVideoConcurrency(next.maxVideoConcurrency); setNotice(`视频最高并发已设为 ${next.maxVideoConcurrency}`) }} onThreeDConcurrencyChange={(value) => { const next = savePreferences({ maxVideoConcurrency, maxThreeDConcurrency: value }); setMaxThreeDConcurrency(next.maxThreeDConcurrency); setNotice(`3D 最高并发已设为 ${next.maxThreeDConcurrency}`) }} onClose={() => setSettingsOpen(false)} onClearHistory={() => { clearHistory(); setHistory([]); setSessionAssetIds([]); setSettingsOpen(false); setNotice('本地历史已清空') }} />
-    <ModelCenter open={modelCenterOpen} initialFamily={modelCenterFamily} onUseModel={useCatalogModel} onClose={() => setModelCenterOpen(false)} />
     <div className="live-notice" aria-live="polite">{notice}</div>
   </div>
 }

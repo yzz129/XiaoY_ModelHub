@@ -28,9 +28,10 @@ import { canQueryQuota, queryProviderQuota, type ProviderQuota } from '../lib/qu
 export type ModelFamily = 'language' | 'speech' | 'vision' | 'vector' | 'router'
 
 interface ModelCenterProps {
-  open: boolean
+  open?: boolean
+  embedded?: boolean
   initialFamily?: ModelFamily
-  onClose: () => void
+  onClose?: () => void
   onUseModel?: (model: CatalogModel) => void
 }
 
@@ -55,7 +56,7 @@ function modelFamily(model: CatalogModel): ModelFamily {
   return 'vision'
 }
 
-export function ModelCenter({ open, initialFamily = 'language', onClose, onUseModel }: ModelCenterProps) {
+export function ModelCenter({ open = false, embedded = false, initialFamily = 'language', onClose, onUseModel }: ModelCenterProps) {
   const ref = useRef<HTMLDialogElement>(null)
   const [family, setFamily] = useState<ModelFamily>(initialFamily)
   const [query, setQuery] = useState('')
@@ -66,6 +67,13 @@ export function ModelCenter({ open, initialFamily = 'language', onClose, onUseMo
   const [quotaError, setQuotaError] = useState<Record<string, string>>({})
 
   useEffect(() => {
+    if (embedded) {
+      setFamily(initialFamily)
+      setQuery('')
+      setPricing('all')
+      setProvider('all')
+      return
+    }
     const dialog = ref.current
     if (!dialog) return
     if (open && !dialog.open) {
@@ -76,7 +84,7 @@ export function ModelCenter({ open, initialFamily = 'language', onClose, onUseMo
       dialog.showModal()
     }
     if (!open && dialog.open) dialog.close()
-  }, [initialFamily, open])
+  }, [embedded, initialFamily, open])
 
   const familyModels = useMemo(
     () => catalogModels.filter((model) => modelFamily(model) === family),
@@ -113,8 +121,8 @@ export function ModelCenter({ open, initialFamily = 'language', onClose, onUseMo
 
   const currentFamily = familyMeta.find((item) => item.id === family)!
 
-  return (
-    <dialog ref={ref} className="model-center marketplace" onClose={onClose} aria-labelledby="model-center-title">
+  const content = (
+    <>
       <header className="marketplace-head">
         <div className="marketplace-title">
           <span>MODEL MARKETPLACE</span>
@@ -129,7 +137,9 @@ export function ModelCenter({ open, initialFamily = 'language', onClose, onUseMo
             placeholder="搜索模型、平台或模型 ID"
           />
         </div>
-        <button type="button" className="marketplace-close" aria-label="关闭模型广场" onClick={onClose}><X /></button>
+        {embedded
+          ? <div className="marketplace-account"><span>本地工作区已连接</span><b>MS</b></div>
+          : <button type="button" className="marketplace-close" aria-label="关闭模型广场" onClick={onClose}><X /></button>}
       </header>
 
       <nav className="model-family-tabs" role="tablist" aria-label="模型分类">
@@ -273,6 +283,12 @@ export function ModelCenter({ open, initialFamily = 'language', onClose, onUseMo
           </div>
         </main>
       </div>
-    </dialog>
+    </>
   )
+
+  if (embedded) {
+    return <section className="model-center marketplace embedded" aria-labelledby="model-center-title">{content}</section>
+  }
+
+  return <dialog ref={ref} className="model-center marketplace" onClose={onClose} aria-labelledby="model-center-title">{content}</dialog>
 }
