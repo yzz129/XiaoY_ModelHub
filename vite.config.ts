@@ -11,6 +11,7 @@ const proxyPath = '/__asset_proxy'
 const savePath = '/__save_generated_asset'
 const outputPath = '/__generated_output/'
 const generationJobPath = '/__generation_jobs'
+const providerQuotaPath = '/__provider_quota'
 const projectRoot = fileURLToPath(new URL('.', import.meta.url))
 const outputRoot = resolve(projectRoot, 'output')
 const generationRequestTimeoutMs = 25 * 60 * 1000
@@ -58,7 +59,12 @@ function isHttpsUrl(value: string) {
 function isAllowedGenerationUrl(value: string) {
   try {
     const url = new URL(value)
-    return url.protocol === 'https:' && (url.hostname.endsWith('.volces.com') || url.hostname === 'apihub.agnes-ai.com')
+    return url.protocol === 'https:' && (
+      url.hostname.endsWith('.volces.com')
+      || url.hostname === 'apihub.agnes-ai.com'
+      || url.hostname === 'api.siliconflow.cn'
+      || url.hostname === 'api.cloudflare.com'
+    )
   } catch {
     return false
   }
@@ -210,7 +216,7 @@ function postGenerationJson(target: string, apiKey: string, payload: Record<stri
       upstream.on('error', (error) => finish(() => reject(error)))
       upstream.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8')
-        let result: unknown = {}
+        let result: unknown
         try { result = text ? JSON.parse(text) : {} } catch { result = { message: text.slice(0, 2000) } }
         finish(() => resolve({ statusCode: upstream.statusCode ?? 502, result }))
       })
@@ -221,6 +227,85 @@ function postGenerationJson(target: string, apiKey: string, payload: Record<stri
     upstreamRequest.on('error', (error) => finish(() => reject(error)))
     upstreamRequest.end(requestBody)
   })
+}
+
+function getProviderQuotaJson(target: string, headers: Record<string, string>) {
+  return new Promise<{ statusCode: number; result: unknown }>((resolve, reject) => {
+    const targetUrl = new URL(target)
+    const upstreamRequest = httpsRequest({
+      protocol: targetUrl.protocol,
+      hostname: targetUrl.hostname,
+      port: targetUrl.port || 443,
+      method: 'GET',
+      path: `${targetUrl.pathname}${targetUrl.search}`,
+      headers: { Accept: 'application/json', ...headers },
+    }, (upstream) => {
+      const chunks: Buffer[] = []
+      upstream.on('data', (chunk: Buffer | string) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+      upstream.on('error', reject)
+      upstream.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8')
+        let result: unknown
+        try { result = text ? JSON.parse(text) : {} } catch { result = { message: text.slice(0, 2000) } }
+        resolve({ statusCode: upstream.statusCode ?? 502, result })
+      })
+    })
+    upstreamRequest.setTimeout(15_000, () => upstreamRequest.destroy(new Error('Quota request timed out')))
+    upstreamRequest.on('error', reject)
+    upstreamRequest.end()
+  })
+}
+
+const providerQuotaMiddleware: Connect.NextHandleFunction = async (request, response, next) => {
+  if (!request.url?.startsWith(providerQuotaPath)) return next()
+  response.setHeader('Content-Type', 'application/json; charset=utf-8')
+  if (request.method !== 'POST') {
+    response.statusCode = 405
+    response.end(JSON.stringify({ error: 'Method not allowed' }))
+    return
+  }
+  try {
+    const body = await readRequestJson(request)
+    const provider = typeof body.provider === 'string' ? body.provider : ''
+    const apiKey = typeof body.apiKey === 'string' ? body.apiKey : ''
+    if (!apiKey) throw new Error('Missing API Key')
+
+    if (provider === 'openrouter') {
+      const upstream = await getProviderQuotaJson('https://openrouter.ai/api/v1/credits', { Authorization: `Bearer ${apiKey}` })
+      if (upstream.statusCode < 200 || upstream.statusCode >= 300) throw new Error(upstreamError(upstream.result, upstream.statusCode))
+      const data = (upstream.result as { data?: { total_credits?: number; total_usage?: number } }).data
+      const total = data?.total_credits
+      const used = data?.total_usage
+      const remaining = typeof total === 'number' && typeof used === 'number' ? Math.max(0, total - used) : undefined
+      response.statusCode = 200
+      response.end(JSON.stringify({
+        summary: remaining === undefined ? '已连接，但接口未返回可用余额' : `剩余 $${remaining.toFixed(4)}`,
+        detail: typeof used === 'number' ? `累计已用 $${used.toFixed(4)}` : undefined,
+      }))
+      return
+    }
+
+    if (provider === 'elevenlabs') {
+      const upstream = await getProviderQuotaJson('https://api.elevenlabs.io/v1/user/subscription', { 'xi-api-key': apiKey })
+      if (upstream.statusCode < 200 || upstream.statusCode >= 300) throw new Error(upstreamError(upstream.result, upstream.statusCode))
+      const data = upstream.result as { character_count?: number; character_limit?: number; tier?: string }
+      const used = data.character_count
+      const limit = data.character_limit
+      const remaining = typeof limit === 'number' && typeof used === 'number' ? Math.max(0, limit - used) : undefined
+      response.statusCode = 200
+      response.end(JSON.stringify({
+        summary: remaining === undefined ? '已连接，但接口未返回字符余额' : `剩余 ${remaining.toLocaleString('en-US')} 字符`,
+        detail: typeof used === 'number' && typeof limit === 'number' ? `已用 ${used.toLocaleString('en-US')} / ${limit.toLocaleString('en-US')} · ${data.tier ?? '当前套餐'}` : data.tier,
+      }))
+      return
+    }
+
+    response.statusCode = 400
+    response.end(JSON.stringify({ error: '该平台暂不支持自动额度查询' }))
+  } catch (error) {
+    response.statusCode = 502
+    response.end(JSON.stringify({ error: error instanceof Error ? error.message : 'Quota query failed' }))
+  }
 }
 
 const durableGenerationMiddleware: Connect.NextHandleFunction = async (request, response, next) => {
@@ -440,12 +525,14 @@ const assetProxy: Connect.NextHandleFunction = (request, response, next) => {
 const assetProxyPlugin: Plugin = {
   name: 'volcengine-asset-proxy',
   configureServer(server) {
+    server.middlewares.use(providerQuotaMiddleware)
     server.middlewares.use(durableGenerationMiddleware)
     server.middlewares.use(saveGeneratedAsset)
     server.middlewares.use(serveGeneratedAsset)
     server.middlewares.use(assetProxy)
   },
   configurePreviewServer(server) {
+    server.middlewares.use(providerQuotaMiddleware)
     server.middlewares.use(durableGenerationMiddleware)
     server.middlewares.use(saveGeneratedAsset)
     server.middlewares.use(serveGeneratedAsset)

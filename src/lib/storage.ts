@@ -85,7 +85,15 @@ export async function loadVideoJobs(): Promise<VideoJob[]> {
       jobs.push({ id: `legacy-${legacy.taskId}`, status: 'queued', settings: { ...legacy.settings }, sessionId: legacy.sessionId, createdAt: legacy.createdAt, updatedAt: Date.now(), remoteTask: legacy })
       await saveVideoJobs(jobs); localStorage.removeItem(LEGACY_PENDING_KEY)
     }
-    const normalized = jobs.map((job): VideoJob => job.status === 'submitting' && !job.remoteTask ? { ...job, status: 'queued', error: undefined } : job)
+    const normalized = jobs.map((job): VideoJob => {
+      if (job.status === 'submitting' && !job.remoteTask) return { ...job, status: 'queued', error: undefined }
+      const legacyAgnesRateLimit = job.status === 'failed'
+        && job.remoteTask?.provider === 'agnes'
+        && /429|请求过于频繁|额度不足/.test(job.error ?? '')
+      return legacyAgnesRateLimit
+        ? { ...job, status: 'queued', error: undefined, providerStatus: '等待 Agnes 免费档查询窗口' }
+        : job
+    })
     await saveVideoJobs(normalized)
     return normalized
   } catch { return [] }

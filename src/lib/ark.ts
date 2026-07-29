@@ -8,27 +8,42 @@ const config = {
   baseUrl: import.meta.env.VITE_ARK_BASE_URL ?? 'https://ark.cn-beijing.volces.com/api/v3',
   agnesApiKey: import.meta.env.VITE_AGNES_API_KEY ?? '',
   agnesBaseUrl: (import.meta.env.VITE_AGNES_BASE_URL ?? 'https://apihub.agnes-ai.com/v1').replace(/\/$/, ''),
+  siliconFlowApiKey: import.meta.env.VITE_SILICONFLOW_API_KEY ?? '',
+  siliconFlowBaseUrl: (import.meta.env.VITE_SILICONFLOW_BASE_URL ?? 'https://api.siliconflow.cn/v1').replace(/\/$/, ''),
+  cloudflareApiToken: import.meta.env.VITE_CLOUDFLARE_API_TOKEN ?? '',
+  cloudflareAccountId: import.meta.env.VITE_CLOUDFLARE_ACCOUNT_ID ?? '',
   threeDModel: import.meta.env.VITE_ARK_3D_MODEL ?? 'doubao-seed3d-2-0-260328',
   hyperThreeDModel: import.meta.env.VITE_ARK_HYPER3D_MODEL ?? 'hyper3d-gen2-260112',
 }
 
 export const hasArkApiKey = Boolean(config.apiKey)
 export const hasAgnesApiKey = Boolean(config.agnesApiKey)
-export const hasApiKey = hasArkApiKey || hasAgnesApiKey
+export const hasSiliconFlowApiKey = Boolean(config.siliconFlowApiKey)
+export const hasCloudflareApiKey = Boolean(config.cloudflareApiToken && config.cloudflareAccountId)
+export const hasApiKey = hasArkApiKey || hasAgnesApiKey || hasSiliconFlowApiKey || hasCloudflareApiKey
 export const arkModels = { image: DEFAULT_IMAGE_MODEL, video: DEFAULT_VIDEO_MODEL, threeD: config.threeDModel, hyperThreeD: config.hyperThreeDModel }
 
-function usesAgnes(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel'>) {
+function providerForSettings(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel'>) {
+  if (settings.kind === '3d') return 'ark'
   return settings.kind === 'image'
-    ? settings.imageModel?.startsWith('agnes-')
-    : settings.kind === 'video' && settings.videoModel?.startsWith('agnes-')
+    ? (imageModels.find((model) => model.id === settings.imageModel) ?? imageModels[0]).provider
+    : (videoModels.find((model) => model.id === settings.videoModel) ?? videoModels[0]).provider
 }
 
 export function hasApiKeyForSettings(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel'>) {
-  return usesAgnes(settings) ? hasAgnesApiKey : hasArkApiKey
+  const provider = providerForSettings(settings)
+  return provider === 'agnes' ? hasAgnesApiKey
+    : provider === 'siliconflow' ? hasSiliconFlowApiKey
+      : provider === 'cloudflare' ? hasCloudflareApiKey
+        : hasArkApiKey
 }
 
 export function getProviderName(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel'>) {
-  return usesAgnes(settings) ? 'Agnes AI' : '火山方舟'
+  const provider = providerForSettings(settings)
+  return provider === 'agnes' ? 'Agnes AI'
+    : provider === 'siliconflow' ? 'SiliconFlow'
+      : provider === 'cloudflare' ? 'Cloudflare Workers AI'
+        : '火山方舟'
 }
 
 function snapshot(settings: GenerationSettings): SettingsSnapshot {
@@ -171,24 +186,45 @@ export async function generateImage(settings: GenerationSettings, sessionId: str
   const template = styleTemplates.find((item) => item.id === settings.styleId)
   const compiledPrompt = compilePrompt(settings, template)
   const imageOption = imageModels.find((model) => model.id === settings.imageModel) ?? imageModels[0]
-  const imageModel = imageOption.id ?? DEFAULT_IMAGE_MODEL
+  const imageModel = imageOption.apiModel ?? imageOption.id ?? DEFAULT_IMAGE_MODEL
   const referenceImage = settings.firstFrame?.dataUrl
-  const response = imageOption.provider === 'agnes'
-    ? await durableJsonPost<{ data?: Array<{ url?: string; b64_json?: string }> }>(
+  let response: { data?: Array<{ url?: string; b64_json?: string }>; images?: Array<{ url?: string }>; result?: { image?: string } }
+  if (imageOption.provider === 'agnes') {
+    response = await durableJsonPost<{ data?: Array<{ url?: string; b64_json?: string }> }>(
         `image-${generationJobId}`,
         `${config.agnesBaseUrl}/images/generations`,
         config.agnesApiKey,
         { model: imageModel, prompt: compiledPrompt, size: settings.resolution, ratio: settings.ratio, extra_body: { response_format: 'url', ...(referenceImage ? { image: [referenceImage] } : {}) } },
         signal,
       )
-    : await durableJsonPost<{ data?: Array<{ url?: string; b64_json?: string }> }>(
+  } else if (imageOption.provider === 'siliconflow') {
+    const imageSizes: Record<string, string> = { '1:1': '1024x1024', '4:3': '1024x768', '3:4': '768x1024', '16:9': '1024x576', '9:16': '576x1024' }
+    response = await durableJsonPost<{ images?: Array<{ url?: string }> }>(
+      `image-${generationJobId}`,
+      `${config.siliconFlowBaseUrl}/images/generations`,
+      config.siliconFlowApiKey,
+      { model: imageModel, prompt: compiledPrompt, image_size: imageSizes[settings.ratio], batch_size: 1, num_inference_steps: 20, guidance_scale: 7.5 },
+      signal,
+    )
+  } else if (imageOption.provider === 'cloudflare') {
+    response = await durableJsonPost<{ result?: { image?: string } }>(
+      `image-${generationJobId}`,
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(config.cloudflareAccountId)}/ai/run/${imageModel}`,
+      config.cloudflareApiToken,
+      { prompt: compiledPrompt, steps: 4 },
+      signal,
+    )
+  } else {
+    response = await durableJsonPost<{ data?: Array<{ url?: string; b64_json?: string }> }>(
         `image-${generationJobId}`,
         `${config.baseUrl}/images/generations`,
         config.apiKey,
         { model: imageModel, prompt: compiledPrompt, size: settings.ratio === '1:1' ? settings.resolution : `${settings.resolution} ${settings.ratio}`, n: 1, response_format: 'url', watermark: false, ...(referenceImage ? { image: [referenceImage] } : {}) },
         signal,
       )
-  return (response.data ?? []).flatMap((item, index) => {
+  }
+  const items: Array<{ url?: string; b64_json?: string }> = response.data ?? response.images ?? (response.result?.image ? [{ b64_json: response.result.image }] : [])
+  return items.flatMap((item, index) => {
     const url = item.url ?? (item.b64_json ? `data:image/png;base64,${item.b64_json}` : '')
     return url ? [{ id: `${generationJobId}-${index}`, kind: 'image' as const, url, prompt: settings.prompt, compiledPrompt, createdAt: Date.now(), settings: snapshot(settings), sessionId }] : []
   })

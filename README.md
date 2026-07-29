@@ -7,6 +7,8 @@
 - 图片生成与编辑：支持 4 个 Seedream 模型和 Agnes Image 2.0/2.1 Flash，可上传参考图，并配置画面比例、清晰度和视觉主题
 - 文生视频：支持 3 个 Seedance 2.0 模型和 Agnes Video V2.0；Seedance 支持文字、首帧、首尾帧和最多 9 张参考图模式
 - 多服务商切换：在模型选择器中直接切换火山方舟或 Agnes AI，并按当前模型检查对应 API Key
+- 模型中心：按大语言模型、图片、视频、语音、Embedding、重排和 3D 分类展示常用模型，标注完全免费、有免费额度、付费或动态计费
+- 平台入口：每个目录模型都提供官方 API 文档、申请 Key、额度说明和剩余额度查询位置
 - 模型级提示词上限：根据所选模型动态使用最高字符数，切换模型时自动适配
 - 图片转 3D：支持 Seed3D 2.0 与 Hyper3D Gen2
 - 异步任务队列：视频与 3D 任务分别支持 1–4 个并发
@@ -23,7 +25,7 @@
 
 | 类型 | 可选模型 | 提示词上限 |
 | --- | --- | --- |
-| 图片 | Seedream 5.0 Pro、5.0 Lite、4.5、4.0；Agnes Image 2.0/2.1 Flash | 最高 32,000 字符，按模型动态调整 |
+| 图片 | Seedream 5.0 Pro、5.0 Lite、4.5、4.0；Agnes Image 2.0/2.1 Flash；SiliconFlow Kolors；Cloudflare FLUX.1 Schnell | 最高 32,000 字符，按模型动态调整 |
 | 视频 | Seedance 2.0、2.0 Fast、2.0 Mini；Agnes Video V2.0 | 20,000 字符 |
 | 3D | Seed3D 2.0、Hyper3D Gen2 | 1,200 字符 |
 
@@ -68,9 +70,15 @@ VITE_ARK_HYPER3D_MODEL=hyper3d-gen2-260112
 
 VITE_AGNES_API_KEY=你的AgnesAI APIKey
 VITE_AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
+
+VITE_SILICONFLOW_API_KEY=你的SiliconFlow APIKey
+VITE_SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
+
+VITE_CLOUDFLARE_API_TOKEN=你的Cloudflare Workers AI Token
+VITE_CLOUDFLARE_ACCOUNT_ID=你的Cloudflare Account ID
 ```
 
-只使用其中一个服务商时，另一个服务商的 API Key 可以留空；3D 生成目前仍使用火山方舟。
+只使用其中一个服务商时，其他服务商的 API Key 可以留空；3D 生成目前仍使用火山方舟。模型中心还识别 `VITE_MODELSCOPE_API_KEY`、`VITE_GEMINI_API_KEY`、`VITE_GROQ_API_KEY`、`VITE_OPENROUTER_API_KEY`、`VITE_HUGGINGFACE_TOKEN`、`VITE_DASHSCOPE_API_KEY`、`VITE_POLLINATIONS_API_KEY`、`VITE_ELEVENLABS_API_KEY`、`VITE_JINA_API_KEY` 和 `VITE_COHERE_API_KEY`，完整示例见 `.env.example`。
 
 启动开发服务：
 
@@ -92,6 +100,28 @@ npm run dev
 - 工作台设置会分别显示火山方舟和 Agnes AI 的密钥连接状态。
 
 接口参数与模型能力以 [Agnes AI 官方文档](https://agnes-ai.com/zh-Hans/docs/overview) 为准；免费范围与限制参见 [常见问题](https://agnes-ai.com/zh-Hans/docs/faqs) 和 [Token 方案及 RPM 限制](https://agnes-ai.com/zh-Hans/docs/tokenplan)。
+
+## 模型中心与费用标记
+
+左侧“模型中心”按能力分类展示 SiliconFlow、ModelScope、Gemini、Groq、OpenRouter、Cloudflare Workers AI、Hugging Face、阿里云百炼、Pollinations、火山方舟、Agnes AI、ElevenLabs、Jina AI 和 Cohere 的常用模型。
+
+费用标记含义：
+
+- `完全免费`：模型本身无需购买额度，但通常仍有 RPM、RPD、每日时长或并发限制。
+- `有免费额度`：存在每日、每月、新用户或试用额度；用完后可能停止服务或转为计费。
+- `付费`：正常调用按量计费，控制台活动赠送额度不视为长期免费。
+- `按模型计费`：同一平台同时存在免费和付费模型，应以模型页的实时标记为准。
+
+“剩余额度”只有在平台提供账户 API 时才能自动读取。Cloudflare、Groq、Gemini、百炼等平台主要要求在控制台查看；模型中心会显示对应查询位置，不会用静态数字冒充账户实时余额。
+
+配置 `VITE_OPENROUTER_API_KEY` 或 `VITE_ELEVENLABS_API_KEY` 后，对应模型卡片会出现“查询额度”按钮，分别通过 OpenRouter Credits API 和 ElevenLabs Subscription API 显示实时剩余余额或字符数。
+
+当前可在创作工作台直接调用的第三方新增模型：
+
+- SiliconFlow `Kwai-Kolors/Kolors`：`POST /v1/images/generations`。
+- Cloudflare Workers AI `@cf/black-forest-labs/flux-1-schnell`：需要 API Token 和 Account ID。
+
+模型中心中的“模型目录”条目已经完成分类、费用说明和配置检测，但尚未接入当前图片/视频画布的专用输入输出流程；“已接入工作台”条目可以直接生成。模型 ID 和免费策略会变化，使用前请通过卡片中的官方文档确认。
 
 ## 图片转 3D
 

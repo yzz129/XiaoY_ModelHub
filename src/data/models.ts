@@ -2,27 +2,32 @@ import type { ImageModel, Resolution, VideoModel } from '../types/generation'
 
 export interface GenerationModelOption<T extends ImageModel | VideoModel> {
   id: T
+  apiModel?: string
   name: string
   description: string
-  provider: 'ark' | 'agnes'
+  provider: 'ark' | 'agnes' | 'siliconflow' | 'cloudflare'
   resolutions: Resolution[]
   maxPromptLength: number
+  supportsReferenceImage?: boolean
+  pricing: 'free' | 'free-quota' | 'paid' | 'variable'
 }
 
 export const imageModels: GenerationModelOption<ImageModel>[] = [
-  { id: 'doubao-seedream-5-0-pro-260628', name: 'Seedream 5.0 Pro', description: '方舟 · 旗舰单图与精准创作', provider: 'ark', resolutions: ['1K', '2K'], maxPromptLength: 32000 },
-  { id: 'doubao-seedream-5-0-260128', name: 'Seedream 5.0 Lite', description: '方舟 · 高性价比通用生图', provider: 'ark', resolutions: ['2K', '3K'], maxPromptLength: 600 },
-  { id: 'doubao-seedream-4-5-251128', name: 'Seedream 4.5', description: '方舟 · 高质量与文字表现', provider: 'ark', resolutions: ['2K', '4K'], maxPromptLength: 600 },
-  { id: 'doubao-seedream-4-0-250828', name: 'Seedream 4.0', description: '方舟 · 稳定通用创作', provider: 'ark', resolutions: ['1K', '2K', '4K'], maxPromptLength: 600 },
-  { id: 'agnes-image-2.0-flash', name: 'Agnes Image 2.0 Flash', description: 'Agnes AI · 文生图与创意视觉', provider: 'agnes', resolutions: ['1K', '2K', '3K', '4K'], maxPromptLength: 32000 },
-  { id: 'agnes-image-2.1-flash', name: 'Agnes Image 2.1 Flash', description: 'Agnes AI · 复杂构图与丰富细节', provider: 'agnes', resolutions: ['1K', '2K', '3K', '4K'], maxPromptLength: 32000 },
+  { id: 'doubao-seedream-5-0-pro-260628', name: 'Seedream 5.0 Pro', description: '方舟 · 旗舰单图与精准创作', provider: 'ark', resolutions: ['1K', '2K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'paid' },
+  { id: 'doubao-seedream-5-0-260128', name: 'Seedream 5.0 Lite', description: '方舟 · 高性价比通用生图', provider: 'ark', resolutions: ['2K', '3K'], maxPromptLength: 600, supportsReferenceImage: true, pricing: 'paid' },
+  { id: 'doubao-seedream-4-5-251128', name: 'Seedream 4.5', description: '方舟 · 高质量与文字表现', provider: 'ark', resolutions: ['2K', '4K'], maxPromptLength: 600, supportsReferenceImage: true, pricing: 'paid' },
+  { id: 'doubao-seedream-4-0-250828', name: 'Seedream 4.0', description: '方舟 · 稳定通用创作', provider: 'ark', resolutions: ['1K', '2K', '4K'], maxPromptLength: 600, supportsReferenceImage: true, pricing: 'paid' },
+  { id: 'agnes-image-2.0-flash', name: 'Agnes Image 2.0 Flash', description: 'Agnes AI · 免费核心模型', provider: 'agnes', resolutions: ['1K', '2K', '3K', '4K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'free' },
+  { id: 'agnes-image-2.1-flash', name: 'Agnes Image 2.1 Flash', description: 'Agnes AI · 免费核心模型', provider: 'agnes', resolutions: ['1K', '2K', '3K', '4K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'free' },
+  { id: 'siliconflow-kolors', apiModel: 'Kwai-Kolors/Kolors', name: 'Kolors', description: 'SiliconFlow · 费用以模型页为准', provider: 'siliconflow', resolutions: ['1K'], maxPromptLength: 2048, pricing: 'variable' },
+  { id: 'cloudflare-flux-schnell', apiModel: '@cf/black-forest-labs/flux-1-schnell', name: 'FLUX.1 Schnell', description: 'Cloudflare · 每日免费额度', provider: 'cloudflare', resolutions: ['1K'], maxPromptLength: 2048, pricing: 'free-quota' },
 ]
 
 export const videoModels: GenerationModelOption<VideoModel>[] = [
-  { id: 'doubao-seedance-2-0-260128', name: 'Seedance 2.0', description: '方舟 · 旗舰画质与多模态参考', provider: 'ark', resolutions: ['720p', '1080p'], maxPromptLength: 20000 },
-  { id: 'doubao-seedance-2-0-fast-260128', name: 'Seedance 2.0 Fast', description: '方舟 · 快速生成与动态表现', provider: 'ark', resolutions: ['720p'], maxPromptLength: 20000 },
-  { id: 'doubao-seedance-2-0-mini-260615', name: 'Seedance 2.0 Mini', description: '方舟 · 轻量高性价比', provider: 'ark', resolutions: ['720p'], maxPromptLength: 20000 },
-  { id: 'agnes-video-v2.0', name: 'Agnes Video V2.0', description: 'Agnes AI · 异步文生视频', provider: 'agnes', resolutions: ['720p', '1080p'], maxPromptLength: 20000 },
+  { id: 'doubao-seedance-2-0-260128', name: 'Seedance 2.0', description: '方舟 · 旗舰画质与多模态参考', provider: 'ark', resolutions: ['720p', '1080p'], maxPromptLength: 20000, pricing: 'paid' },
+  { id: 'doubao-seedance-2-0-fast-260128', name: 'Seedance 2.0 Fast', description: '方舟 · 快速生成与动态表现', provider: 'ark', resolutions: ['720p'], maxPromptLength: 20000, pricing: 'paid' },
+  { id: 'doubao-seedance-2-0-mini-260615', name: 'Seedance 2.0 Mini', description: '方舟 · 轻量高性价比', provider: 'ark', resolutions: ['720p'], maxPromptLength: 20000, pricing: 'paid' },
+  { id: 'agnes-video-v2.0', name: 'Agnes Video V2.0', description: 'Agnes AI · 免费但限流', provider: 'agnes', resolutions: ['720p', '1080p'], maxPromptLength: 20000, pricing: 'free' },
 ]
 
 const configuredImageModel = import.meta.env.VITE_ARK_IMAGE_MODEL
