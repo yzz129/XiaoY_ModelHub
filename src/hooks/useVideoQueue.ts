@@ -51,7 +51,7 @@ export function useVideoQueue({ maxConcurrency, onComplete, onNotice }: UseVideo
     updateJob(jobId, { status: initial.remoteTask ? 'running' : 'submitting', error: undefined })
     let activeRemoteTask = initial.remoteTask
     try {
-      const remoteTask = activeRemoteTask ?? await createVideoTask(initial.settings, initial.sessionId, controller.signal)
+      const remoteTask = activeRemoteTask ?? await createVideoTask(initial.settings, initial.sessionId, controller.signal, `${initial.id}-${initial.submissionAttempt ?? 0}`)
       activeRemoteTask = remoteTask
       updateJob(jobId, { status: 'running', remoteTask, providerStatus: 'queued' })
       const result = await waitForVideo(remoteTask, { signal: controller.signal, onState: (providerStatus) => updateJob(jobId, { providerStatus }) })
@@ -91,7 +91,10 @@ export function useVideoQueue({ maxConcurrency, onComplete, onNotice }: UseVideo
   }, [updateJob])
 
   const resume = useCallback((id: string) => updateJob(id, { status: 'queued', error: undefined }), [updateJob])
-  const retry = useCallback((id: string) => updateJob(id, { status: 'queued', error: undefined }), [updateJob])
+  const retry = useCallback((id: string) => {
+    const job = jobsRef.current.find((item) => item.id === id)
+    updateJob(id, { status: 'queued', error: undefined, ...(!job?.remoteTask ? { submissionAttempt: (job?.submissionAttempt ?? 0) + 1 } : {}) })
+  }, [updateJob])
   const remove = useCallback((id: string) => {
     controllers.current.get(id)?.abort()
     running.current.delete(id)

@@ -83,6 +83,18 @@ export interface PendingThreeDTask {
   createdAt: number
 }
 
+export type ImageJobStatus = 'queued' | 'running' | 'failed'
+
+export interface ImageJob {
+  id: string
+  status: ImageJobStatus
+  settings: GenerationSettings
+  sessionId: string
+  createdAt: number
+  updatedAt: number
+  error?: string
+}
+
 export type VideoJobStatus = 'queued' | 'submitting' | 'running' | 'paused' | 'failed'
 
 export interface VideoJob {
@@ -93,6 +105,7 @@ export interface VideoJob {
   createdAt: number
   updatedAt: number
   remoteTask?: PendingVideoTask
+  submissionAttempt?: number
   providerStatus?: string
   error?: string
 }
@@ -107,6 +120,7 @@ export interface ThreeDJob {
   createdAt: number
   updatedAt: number
   remoteTask?: PendingThreeDTask
+  submissionAttempt?: number
   providerStatus?: string
   error?: string
 }

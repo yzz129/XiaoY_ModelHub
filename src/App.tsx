@@ -6,9 +6,10 @@ import { SettingsDialog } from './components/SettingsDialog'
 import { VideoTaskStrip } from './components/VideoTaskStrip'
 import { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL, getGenerationModel, getPromptLimit, imageModels, videoModels } from './data/models'
 import { styleTemplates } from './data/templates'
+import { useImageQueue } from './hooks/useImageQueue'
 import { useVideoQueue } from './hooks/useVideoQueue'
 import { useThreeDQueue } from './hooks/useThreeDQueue'
-import { generateImage, getProviderName, hasApiKeyForSettings, refreshAssetUrl } from './lib/ark'
+import { getProviderName, hasApiKeyForSettings, refreshAssetUrl } from './lib/ark'
 import { clearHistory, loadHistory, loadPreferences, saveHistory, savePreferences } from './lib/storage'
 import { saveGeneratedAsset } from './lib/output'
 import { MAX_VIDEO_REFERENCE_IMAGES } from './lib/video'
@@ -52,7 +53,6 @@ function App() {
   const [sessionAssetIds, setSessionAssetIds] = useState<string[]>([])
   const [canvasView, setCanvasView] = useState<CanvasView>('session')
   const [selectedId, setSelectedId] = useState<string>()
-  const [imageLoading, setImageLoading] = useState(false)
   const [imageError, setImageError] = useState<string>()
   const [promptError, setPromptError] = useState<string>()
   const [frameError, setFrameError] = useState<string>()
@@ -64,7 +64,6 @@ function App() {
   const [maxVideoConcurrency, setMaxVideoConcurrency] = useState(() => loadPreferences().maxVideoConcurrency)
   const [maxThreeDConcurrency, setMaxThreeDConcurrency] = useState(() => loadPreferences().maxThreeDConcurrency)
   const promptRef = useRef<HTMLTextAreaElement>(null)
-  const imageAbortRef = useRef<AbortController | null>(null)
   const refreshingAssetsRef = useRef(new Set<string>())
   const failedAssetRefreshesRef = useRef(new Set<string>())
   const [refreshingAssetIds, setRefreshingAssetIds] = useState<string[]>([])
@@ -79,8 +78,20 @@ function App() {
     setHistory((current) => current.some((item) => item.taskId && item.taskId === saved.taskId) ? current : [saved, ...current])
     if (saved.sessionId === sessionId) setSessionAssetIds((current) => [saved.id, ...current])
   }, [sessionId])
+  const addAsyncImages = useCallback(async (results: GeneratedAsset[]) => {
+    setHistory((current) => [...results, ...current.filter((item) => !results.some((result) => result.id === item.id))])
+    const currentSessionResults = results.filter((result) => result.sessionId === sessionId)
+    if (currentSessionResults.length) {
+      setSessionAssetIds((current) => [...currentSessionResults.map((item) => item.id), ...current.filter((id) => !currentSessionResults.some((item) => item.id === id))])
+      setSelectedId(currentSessionResults[0].id)
+      setCanvasView('session')
+    }
+  }, [sessionId])
+  const imageQueue = useImageQueue({ onComplete: addAsyncImages, onNotice: setNotice, onError: setImageError })
   const videoQueue = useVideoQueue({ maxConcurrency: maxVideoConcurrency, onComplete: addAsyncResult, onNotice: setNotice })
   const threeDQueue = useThreeDQueue({ maxConcurrency: maxThreeDConcurrency, onComplete: addAsyncResult, onNotice: setNotice })
+  const imageLoading = imageQueue.jobs.some((job) => job.status === 'queued' || job.status === 'running')
+  const failedImageJob = imageQueue.jobs.find((job) => job.status === 'failed')
 
   useEffect(() => { saveHistory(history) }, [history])
   useEffect(() => {
@@ -146,12 +157,6 @@ function App() {
     return true
   }
 
-  function addResult(results: GeneratedAsset[]) {
-    setHistory((current) => [...results, ...current.filter((item) => !results.some((result) => result.taskId && result.taskId === item.taskId))])
-    setSessionAssetIds((current) => [...results.map((item) => item.id), ...current])
-    setSelectedId(results[0]?.id); setCanvasView('session')
-  }
-
   const refreshAsset = useCallback(async (asset: GeneratedAsset, force = false) => {
     if (!asset.taskId || asset.kind === 'image') return
     const failureKey = `${asset.id}:${asset.url}`
@@ -201,15 +206,11 @@ function App() {
       return
     }
     if (imageLoading) return
-    setImageLoading(true); setImageError(undefined); setLastFailedImage(values); imageAbortRef.current = new AbortController()
+    setImageError(undefined); setLastFailedImage(values)
     try {
-      const remoteResults = await generateImage(values, sessionId, imageAbortRef.current.signal)
-      if (!remoteResults.length) throw new Error(`${getProviderName(values)} 已响应，但没有返回可展示的图片`)
-      const results = await Promise.all(remoteResults.map((asset) => saveGeneratedAsset(asset, imageAbortRef.current?.signal)))
-      addResult(results)
-      setNotice(`${results.length} 张图片已保存到 output/images`)
+      await imageQueue.enqueue(values, sessionId)
+      setNotice('图片任务已提交；刷新页面后会自动继续')
     } catch (caught) { setImageError(caught instanceof Error ? caught.message : '发生未知错误') }
-    finally { setImageLoading(false); imageAbortRef.current = null }
   }
 
   function newTask() {
@@ -275,6 +276,7 @@ function App() {
               <section className="control-section"><div className="section-label"><span>创作方式</span><small>MODE</small></div><div className="mode-tabs">{modes.map((mode) => <button type="button" key={mode.id} aria-pressed={settings.mode === mode.id} className={settings.mode === mode.id ? 'active' : ''} onClick={() => switchMode(mode.id as GenerationMode)}>{mode.label}</button>)}</div></section>
               {settings.kind === 'video' && (settings.mode === 'first-frame' || settings.mode === 'first-last-frame') && <div className="frame-grid"><FrameUpload label="首帧" hint="JPG / PNG / WebP · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} />{settings.mode === 'first-last-frame' && <FrameUpload label="尾帧" hint="建议与首帧比例一致" value={settings.lastFrame} onChange={(lastFrame) => patch({ lastFrame })} disabled={!settings.firstFrame} error={settings.firstFrame ? frameError : undefined} />}</div>}
               {settings.kind === 'video' && settings.mode === 'reference-images' && <ReferenceImageUpload value={settings.referenceImages ?? []} onChange={(referenceImages) => { patch({ referenceImages }); setFrameError(undefined) }} error={frameError} />}
+              {settings.kind === 'image' && <div className="frame-grid single"><FrameUpload label="参考图（可选）" hint="用于图生图或风格参考 · JPG / PNG / WebP · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} /></div>}
               {settings.kind === '3d' && <div className="frame-grid single"><FrameUpload label="3D 参考图片" hint="不足 300 × 300px 自动白边补齐 · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} minWidth={300} minHeight={300} /></div>}
               {settings.kind === 'image' && <section className="control-section compact"><div className="section-label"><span>图片模型</span><small>MODEL</small></div><div className="model-choice generation-model-choice">{imageModels.map((model) => <button type="button" key={model.id} aria-pressed={(settings.imageModel ?? DEFAULT_IMAGE_MODEL) === model.id} className={(settings.imageModel ?? DEFAULT_IMAGE_MODEL) === model.id ? 'active' : ''} onClick={() => selectImageModel(model.id)}><strong>{model.name}</strong><span>{model.description}</span><small>{model.id}</small></button>)}</div></section>}
               {settings.kind === 'video' && <section className="control-section compact"><div className="section-label"><span>视频模型</span><small>MODEL</small></div><div className="model-choice generation-model-choice">{videoModels.map((model) => <button type="button" key={model.id} aria-pressed={(settings.videoModel ?? DEFAULT_VIDEO_MODEL) === model.id} className={(settings.videoModel ?? DEFAULT_VIDEO_MODEL) === model.id ? 'active' : ''} onClick={() => selectVideoModel(model.id)}><strong>{model.name}</strong><span>{model.description}</span><small>{model.id}</small></button>)}</div></section>}
@@ -293,7 +295,7 @@ function App() {
           <div className="canvas-toolbar"><div role="tablist" aria-label="作品范围"><button type="button" role="tab" aria-selected={canvasView === 'session'} className={canvasView === 'session' ? 'active' : ''} onClick={() => setCanvasView('session')}>本次创作 <span>{sessionAssets.length}</span></button><button type="button" role="tab" aria-selected={canvasView === 'history'} className={canvasView === 'history' ? 'active' : ''} onClick={() => setCanvasView('history')}>全部作品 <span>{history.length}</span></button></div><button type="button" className="new-task canvas-new" onClick={newTask}><Plus /> 新建创作</button></div>
           <VideoTaskStrip jobs={videoQueue.jobs} maxConcurrency={maxVideoConcurrency} onOpenSettings={() => setSettingsOpen(true)} onPause={videoQueue.pause} onResume={videoQueue.resume} onRetry={videoQueue.retry} onRemove={videoQueue.remove} onReuse={(job) => reuseJob(job as VideoJob)} />
           <VideoTaskStrip kind="3d" jobs={threeDQueue.jobs} maxConcurrency={maxThreeDConcurrency} onOpenSettings={() => setSettingsOpen(true)} onPause={threeDQueue.pause} onResume={threeDQueue.resume} onRetry={threeDQueue.retry} onRemove={threeDQueue.remove} onReuse={(job) => reuseThreeDJob(job as ThreeDJob)} />
-          <div className="canvas-content" role="tabpanel"><OutputStage assets={visibleAssets} view={canvasView} selectedId={selectedId} imageLoading={imageLoading} imageError={imageError} refreshingAssetIds={refreshingAssetIds} onRefreshAsset={refreshAsset} onSelect={selectAsset} onReuse={reuse} onRemove={removeAsset} onSuggestion={(prompt) => { patch({ prompt }); focusControls() }} onRetryImage={lastFailedImage ? () => void submit(lastFailedImage) : undefined} /></div>
+          <div className="canvas-content" role="tabpanel"><OutputStage assets={visibleAssets} view={canvasView} selectedId={selectedId} imageLoading={imageLoading} imageError={imageError} refreshingAssetIds={refreshingAssetIds} onRefreshAsset={refreshAsset} onSelect={selectAsset} onReuse={reuse} onRemove={removeAsset} onSuggestion={(prompt) => { patch({ prompt }); focusControls() }} onRetryImage={failedImageJob ? () => imageQueue.retry(failedImageJob.id) : lastFailedImage ? () => void submit(lastFailedImage) : undefined} /></div>
           <div className="canvas-foot"><span>素材文件保存在 output 分类目录，作品索引保存在当前浏览器</span><span>Powered by Volcengine Ark</span></div>
         </section>
       </div>

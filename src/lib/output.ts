@@ -16,6 +16,7 @@ export async function saveGeneratedAsset(asset: GeneratedAsset, signal?: AbortSi
       kind: asset.kind,
       url: asset.url,
       createdAt: asset.createdAt,
+      provider: asset.settings.imageModel?.startsWith('agnes-') || asset.settings.videoModel?.startsWith('agnes-') ? 'agnes' : 'ark',
     }),
   })
   const result = await response.json().catch(() => ({})) as SavedAssetResponse

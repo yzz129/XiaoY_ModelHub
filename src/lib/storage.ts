@@ -1,4 +1,4 @@
-import type { GeneratedAsset, PendingVideoTask, SettingsSnapshot, ThreeDJob, VideoJob, WorkspacePreferences } from '../types/generation'
+import type { GeneratedAsset, ImageJob, PendingVideoTask, SettingsSnapshot, ThreeDJob, VideoJob, WorkspacePreferences } from '../types/generation'
 
 const HISTORY_KEY = 'muse-history-v2'
 const LEGACY_HISTORY_KEY = 'muse-history'
@@ -56,12 +56,13 @@ function isVideoJob(value: unknown): value is VideoJob {
 
 function openJobsDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open('muse-workspace', 2)
+    const request = indexedDB.open('muse-workspace', 3)
     request.onerror = () => reject(request.error)
     request.onupgradeneeded = () => {
       const database = request.result
       if (!database.objectStoreNames.contains('videoJobs')) database.createObjectStore('videoJobs', { keyPath: 'id' })
       if (!database.objectStoreNames.contains('threeDJobs')) database.createObjectStore('threeDJobs', { keyPath: 'id' })
+      if (!database.objectStoreNames.contains('imageJobs')) database.createObjectStore('imageJobs', { keyPath: 'id' })
     }
     request.onsuccess = () => resolve(request.result)
   })
@@ -84,7 +85,7 @@ export async function loadVideoJobs(): Promise<VideoJob[]> {
       jobs.push({ id: `legacy-${legacy.taskId}`, status: 'queued', settings: { ...legacy.settings }, sessionId: legacy.sessionId, createdAt: legacy.createdAt, updatedAt: Date.now(), remoteTask: legacy })
       await saveVideoJobs(jobs); localStorage.removeItem(LEGACY_PENDING_KEY)
     }
-    const normalized = jobs.map((job): VideoJob => job.status === 'submitting' && !job.remoteTask ? { ...job, status: 'failed', error: '页面在提交期间关闭，无法确认远端任务是否已创建，请确认后重新排队' } : job)
+    const normalized = jobs.map((job): VideoJob => job.status === 'submitting' && !job.remoteTask ? { ...job, status: 'queued', error: undefined } : job)
     await saveVideoJobs(normalized)
     return normalized
   } catch { return [] }
@@ -96,6 +97,40 @@ export async function saveVideoJobs(jobs: VideoJob[]) {
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction('videoJobs', 'readwrite')
       const store = transaction.objectStore('videoJobs')
+      store.clear(); jobs.forEach((job) => store.put(job))
+      transaction.onerror = () => reject(transaction.error)
+      transaction.oncomplete = () => resolve()
+    })
+    return true
+  } catch { return false }
+}
+
+function isImageJob(value: unknown): value is ImageJob {
+  if (!value || typeof value !== 'object') return false
+  const job = value as Partial<ImageJob>
+  return typeof job.id === 'string' && ['queued', 'running', 'failed'].includes(job.status ?? '') && job.settings?.kind === 'image' && typeof job.sessionId === 'string'
+}
+
+export async function loadImageJobs(): Promise<ImageJob[]> {
+  try {
+    const database = await openJobsDatabase()
+    const jobs = await new Promise<ImageJob[]>((resolve, reject) => {
+      const request = database.transaction('imageJobs', 'readonly').objectStore('imageJobs').getAll()
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve(request.result.filter(isImageJob))
+    })
+    const normalized = jobs.map((job): ImageJob => job.status === 'running' ? { ...job, status: 'queued' } : job)
+    await saveImageJobs(normalized)
+    return normalized
+  } catch { return [] }
+}
+
+export async function saveImageJobs(jobs: ImageJob[]) {
+  try {
+    const database = await openJobsDatabase()
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction('imageJobs', 'readwrite')
+      const store = transaction.objectStore('imageJobs')
       store.clear(); jobs.forEach((job) => store.put(job))
       transaction.onerror = () => reject(transaction.error)
       transaction.oncomplete = () => resolve()
@@ -118,7 +153,7 @@ export async function loadThreeDJobs(): Promise<ThreeDJob[]> {
       request.onerror = () => reject(request.error)
       request.onsuccess = () => resolve(request.result.filter(isThreeDJob))
     })
-    const normalized = jobs.map((job): ThreeDJob => job.status === 'submitting' && !job.remoteTask ? { ...job, status: 'failed', error: '页面在提交期间关闭，无法确认远端任务是否已创建，请确认后重新排队' } : job)
+    const normalized = jobs.map((job): ThreeDJob => job.status === 'submitting' && !job.remoteTask ? { ...job, status: 'queued', error: undefined } : job)
     await saveThreeDJobs(normalized)
     return normalized
   } catch { return [] }

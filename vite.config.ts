@@ -10,8 +10,11 @@ import react from '@vitejs/plugin-react'
 const proxyPath = '/__asset_proxy'
 const savePath = '/__save_generated_asset'
 const outputPath = '/__generated_output/'
+const generationJobPath = '/__generation_jobs'
 const projectRoot = fileURLToPath(new URL('.', import.meta.url))
 const outputRoot = resolve(projectRoot, 'output')
+const generationRequestTimeoutMs = 25 * 60 * 1000
+const maxGenerationResponseBytes = 100 * 1024 * 1024
 const forwardedHeaders = ['accept-ranges', 'cache-control', 'content-length', 'content-range', 'content-type', 'etag', 'last-modified']
 const outputFolders = { image: 'images', video: 'videos', '3d': 'models' } as const
 const fallbackExtensions = { image: '.png', video: '.mp4', '3d': '.glb' } as const
@@ -43,6 +46,19 @@ function isAllowedAssetUrl(value: string) {
   try {
     const url = new URL(value)
     return url.protocol === 'https:' && url.hostname.endsWith('.volces.com') && url.hostname.includes('.tos-')
+  } catch {
+    return false
+  }
+}
+
+function isHttpsUrl(value: string) {
+  try { return new URL(value).protocol === 'https:' } catch { return false }
+}
+
+function isAllowedGenerationUrl(value: string) {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && (url.hostname.endsWith('.volces.com') || url.hostname === 'apihub.agnes-ai.com')
   } catch {
     return false
   }
@@ -81,7 +97,7 @@ async function readRequestJson(request: Parameters<Connect.NextHandleFunction>[0
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
 }
 
-async function downloadAsset(sourceUrl: string, target: string) {
+async function downloadAsset(sourceUrl: string, target: string, allowExternalHttps = false) {
   const temporary = `${target}.${crypto.randomUUID()}.part`
   try {
     if (sourceUrl.startsWith('data:')) {
@@ -92,16 +108,185 @@ async function downloadAsset(sourceUrl: string, target: string) {
       await copyFile(temporary, target)
       return match[1] ?? 'application/octet-stream'
     }
-    if (!isAllowedAssetUrl(sourceUrl)) throw new Error('Unsupported asset URL')
+    if (!isAllowedAssetUrl(sourceUrl) && !(allowExternalHttps && isHttpsUrl(sourceUrl))) throw new Error('Unsupported asset URL')
     const upstream = await fetch(sourceUrl)
     if (!upstream.ok || !upstream.body) throw new Error(`Asset download failed (${upstream.status})`)
-    if (!isAllowedAssetUrl(upstream.url)) throw new Error('Asset download redirected to an unsupported URL')
+    if (!isAllowedAssetUrl(upstream.url) && !(allowExternalHttps && isHttpsUrl(upstream.url))) throw new Error('Asset download redirected to an unsupported URL')
     await pipeline(upstream.body, createWriteStream(temporary))
     await copyFile(temporary, target)
     return upstream.headers.get('content-type') ?? 'application/octet-stream'
   } finally {
     await unlink(temporary).catch(() => undefined)
   }
+}
+
+interface DurableGenerationJob {
+  id: string
+  status: 'running' | 'completed' | 'failed'
+  result?: unknown
+  error?: string
+  errorCode?: string
+  statusCode?: number
+  updatedAt: number
+}
+
+const durableGenerationJobs = new Map<string, DurableGenerationJob>()
+
+function pruneDurableGenerationJobs() {
+  const cutoff = Date.now() - 60 * 60 * 1000
+  for (const [id, job] of durableGenerationJobs) {
+    if (job.updatedAt < cutoff) durableGenerationJobs.delete(id)
+  }
+}
+
+function upstreamError(payload: unknown, status: number) {
+  if (payload && typeof payload === 'object') {
+    const value = payload as { error?: { message?: string } | string; message?: string }
+    if (typeof value.error === 'string') return value.error
+    if (value.error?.message) return value.error.message
+    if (value.message) return value.message
+  }
+  return `Generation request failed (${status})`
+}
+
+function generationNetworkError(error: unknown, target: string) {
+  const direct = error instanceof Error ? error : new Error('Unknown upstream network error')
+  const withCause = direct as Error & { code?: string; cause?: unknown }
+  const cause = withCause.cause && typeof withCause.cause === 'object' ? withCause.cause as { code?: string; message?: string } : undefined
+  const code = cause?.code ?? withCause.code ?? 'UPSTREAM_NETWORK_ERROR'
+  const detail = cause?.message ?? direct.message
+  const provider = new URL(target).hostname === 'apihub.agnes-ai.com' ? 'Agnes AI' : '火山方舟'
+  const descriptions: Record<string, string> = {
+    ECONNRESET: `${provider} 在结果返回完成前关闭了连接`,
+    ETIMEDOUT: `连接 ${provider} 超时`,
+    UPSTREAM_TIMEOUT: `等待 ${provider} 生成结果超过 25 分钟`,
+    ENOTFOUND: `无法解析 ${provider} 的服务器地址`,
+    EAI_AGAIN: `解析 ${provider} 的服务器地址暂时失败`,
+    ECONNREFUSED: `${provider} 拒绝了网络连接`,
+    CERT_HAS_EXPIRED: `${provider} 返回的 TLS 证书已过期`,
+    UNABLE_TO_VERIFY_LEAF_SIGNATURE: `无法验证 ${provider} 的 TLS 证书`,
+  }
+  const summary = descriptions[code] ?? `连接 ${provider} 时发生网络异常`
+  return { code, message: `${summary}（${code}：${detail}）。远端可能已经收到请求，为避免重复计费，系统没有自动重试。` }
+}
+
+function postGenerationJson(target: string, apiKey: string, payload: Record<string, unknown>) {
+  return new Promise<{ statusCode: number; result: unknown }>((resolve, reject) => {
+    const targetUrl = new URL(target)
+    const requestBody = Buffer.from(JSON.stringify(payload))
+    let settled = false
+    const timeoutHandle: { current?: ReturnType<typeof setTimeout> } = {}
+    const finish = (action: () => void) => {
+      if (settled) return
+      settled = true
+      if (timeoutHandle.current) clearTimeout(timeoutHandle.current)
+      action()
+    }
+    const upstreamRequest = httpsRequest({
+      protocol: targetUrl.protocol,
+      hostname: targetUrl.hostname,
+      port: targetUrl.port || 443,
+      method: 'POST',
+      path: `${targetUrl.pathname}${targetUrl.search}`,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Content-Length': String(requestBody.length),
+        Accept: 'application/json',
+      },
+    }, (upstream) => {
+      const chunks: Buffer[] = []
+      let size = 0
+      upstream.on('data', (chunk: Buffer | string) => {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+        size += buffer.length
+        if (size > maxGenerationResponseBytes) {
+          upstream.destroy(Object.assign(new Error('Generation response is larger than 100 MB'), { code: 'UPSTREAM_RESPONSE_TOO_LARGE' }))
+          return
+        }
+        chunks.push(buffer)
+      })
+      upstream.on('aborted', () => finish(() => reject(Object.assign(new Error('Upstream response was aborted'), { code: 'ECONNRESET' }))))
+      upstream.on('error', (error) => finish(() => reject(error)))
+      upstream.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8')
+        let result: unknown = {}
+        try { result = text ? JSON.parse(text) : {} } catch { result = { message: text.slice(0, 2000) } }
+        finish(() => resolve({ statusCode: upstream.statusCode ?? 502, result }))
+      })
+    })
+    timeoutHandle.current = setTimeout(() => {
+      upstreamRequest.destroy(Object.assign(new Error('Upstream generation request exceeded 25 minutes'), { code: 'UPSTREAM_TIMEOUT' }))
+    }, generationRequestTimeoutMs)
+    upstreamRequest.on('error', (error) => finish(() => reject(error)))
+    upstreamRequest.end(requestBody)
+  })
+}
+
+const durableGenerationMiddleware: Connect.NextHandleFunction = async (request, response, next) => {
+  if (!request.url?.startsWith(generationJobPath)) return next()
+  pruneDurableGenerationJobs()
+  const requestUrl = new URL(request.url, 'http://localhost')
+  response.setHeader('Content-Type', 'application/json; charset=utf-8')
+
+  if (request.method === 'POST' && requestUrl.pathname === generationJobPath) {
+    try {
+      const body = await readRequestJson(request)
+      const id = safeAssetId(body.id)
+      const target = typeof body.url === 'string' ? body.url : ''
+      const apiKey = typeof body.apiKey === 'string' ? body.apiKey : ''
+      const payload = body.payload
+      if (!isAllowedGenerationUrl(target)) throw new Error('Unsupported generation endpoint')
+      if (!apiKey) throw new Error('Missing API Key')
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Missing generation payload')
+
+      let job = durableGenerationJobs.get(id)
+      if (!job) {
+        job = { id, status: 'running', updatedAt: Date.now() }
+        durableGenerationJobs.set(id, job)
+        void (async () => {
+          try {
+            const upstream = await postGenerationJson(target, apiKey, payload as Record<string, unknown>)
+            const current = durableGenerationJobs.get(id)
+            if (!current) return
+            if (upstream.statusCode < 200 || upstream.statusCode >= 300) {
+              durableGenerationJobs.set(id, { ...current, status: 'failed', statusCode: upstream.statusCode, error: upstreamError(upstream.result, upstream.statusCode), updatedAt: Date.now() })
+              return
+            }
+            durableGenerationJobs.set(id, { ...current, status: 'completed', result: upstream.result, updatedAt: Date.now() })
+          } catch (error) {
+            const current = durableGenerationJobs.get(id)
+            if (current) {
+              const failure = generationNetworkError(error, target)
+              durableGenerationJobs.set(id, { ...current, status: 'failed', error: failure.message, errorCode: failure.code, updatedAt: Date.now() })
+            }
+          }
+        })()
+      }
+      response.statusCode = 202
+      response.end(JSON.stringify({ id: job.id, status: job.status }))
+    } catch (error) {
+      response.statusCode = 400
+      response.end(JSON.stringify({ error: error instanceof Error ? error.message : 'Invalid generation job' }))
+    }
+    return
+  }
+
+  if (request.method === 'GET' && requestUrl.pathname.startsWith(`${generationJobPath}/`)) {
+    const id = safeAssetId(decodeURIComponent(requestUrl.pathname.slice(generationJobPath.length + 1)))
+    const job = durableGenerationJobs.get(id)
+    if (!job) {
+      response.statusCode = 404
+      response.end(JSON.stringify({ error: 'Generation job not found' }))
+      return
+    }
+    response.statusCode = 200
+    response.end(JSON.stringify(job))
+    return
+  }
+
+  response.statusCode = 405
+  response.end(JSON.stringify({ error: 'Method not allowed' }))
 }
 
 const saveGeneratedAsset: Connect.NextHandleFunction = async (request, response, next) => {
@@ -124,7 +309,7 @@ const saveGeneratedAsset: Connect.NextHandleFunction = async (request, response,
     const id = safeAssetId(body.id)
     const baseName = `${timestampLabel(body.createdAt)}_${id}`
     const provisional = join(folder, `${baseName}${fallbackExtensions[kind]}`)
-    const contentType = await downloadAsset(sourceUrl, provisional)
+    const contentType = await downloadAsset(sourceUrl, provisional, body.provider === 'agnes')
     const extension = chooseExtension(kind, contentType, sourceUrl)
     const target = extension === fallbackExtensions[kind] ? provisional : join(folder, `${baseName}${extension}`)
     if (target !== provisional) {
@@ -255,11 +440,13 @@ const assetProxy: Connect.NextHandleFunction = (request, response, next) => {
 const assetProxyPlugin: Plugin = {
   name: 'volcengine-asset-proxy',
   configureServer(server) {
+    server.middlewares.use(durableGenerationMiddleware)
     server.middlewares.use(saveGeneratedAsset)
     server.middlewares.use(serveGeneratedAsset)
     server.middlewares.use(assetProxy)
   },
   configurePreviewServer(server) {
+    server.middlewares.use(durableGenerationMiddleware)
     server.middlewares.use(saveGeneratedAsset)
     server.middlewares.use(serveGeneratedAsset)
     server.middlewares.use(assetProxy)

@@ -62,6 +62,31 @@ async function arkFetch<T>(path: string, init: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+const AGNES_VIDEO_POLL_INTERVAL_MS = 65_000
+
+class AgnesRateLimitError extends Error {
+  retryAfterMs: number
+
+  constructor(retryAfterMs: number) {
+    super('Agnes AI 请求频率超过当前套餐限制，任务仍在远端生成，将自动等待后继续查询')
+    this.name = 'AgnesRateLimitError'
+    this.retryAfterMs = retryAfterMs
+  }
+}
+
+function getRetryAfterMs(response: Response) {
+  const retryAfter = response.headers.get('Retry-After')
+  if (!retryAfter) return AGNES_VIDEO_POLL_INTERVAL_MS
+  const seconds = Number(retryAfter)
+  if (Number.isFinite(seconds)) return Math.max(seconds * 1000, AGNES_VIDEO_POLL_INTERVAL_MS)
+  const retryAt = Date.parse(retryAfter)
+  return Number.isNaN(retryAt) ? AGNES_VIDEO_POLL_INTERVAL_MS : Math.max(retryAt - Date.now(), AGNES_VIDEO_POLL_INTERVAL_MS)
+}
+
+function isQuotaError(detail: string) {
+  return /(?:quota|credit|balance|token|额度|余额).*(?:exceed|exhaust|insufficient|不足|用尽|超出)|(?:exceed|exhaust|insufficient|不足|用尽|超出).*(?:quota|credit|balance|token|额度|余额)/i.test(detail)
+}
+
 async function agnesFetch<T>(path: string, init: RequestInit): Promise<T> {
   if (!config.agnesApiKey) throw new Error('请先在 .env.local 中配置 VITE_AGNES_API_KEY')
   const baseUrl = path.startsWith('/agnesapi') ? config.agnesBaseUrl.replace(/\/v1$/, '') : config.agnesBaseUrl
@@ -77,35 +102,95 @@ async function agnesFetch<T>(path: string, init: RequestInit): Promise<T> {
   }
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) throw new Error('Agnes AI API Key 无效，或当前账号没有模型调用权限')
-    if (response.status === 429) throw new Error('Agnes AI 请求过于频繁或额度不足，请稍后重试')
-    if (response.status >= 500) throw new Error('Agnes AI 服务暂时不可用，请稍后重试')
     let detail = ''
     try {
       const payload = await response.json() as { error?: { message?: string } | string; message?: string }
       detail = typeof payload.error === 'string' ? payload.error : payload.error?.message ?? payload.message ?? ''
     } catch { /* Agnes may return an empty non-JSON response. */ }
+    if (response.status === 429) {
+      if (isQuotaError(detail)) throw new Error(detail ? `Agnes AI 额度不足：${detail}` : 'Agnes AI 当前套餐额度已用尽')
+      throw new AgnesRateLimitError(getRetryAfterMs(response))
+    }
+    if (response.status >= 500) throw new Error('Agnes AI 服务暂时不可用，请稍后重试')
     throw new Error(detail ? `Agnes AI 请求参数错误：${detail}` : `Agnes AI 未接受请求（${response.status}）`)
   }
   return response.json() as Promise<T>
 }
 
-export async function generateImage(settings: GenerationSettings, sessionId: string, signal?: AbortSignal): Promise<GeneratedAsset[]> {
+function wait(delay: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      window.clearTimeout(timer)
+      reject(new Error('已停止本地查询，远端任务可能仍在继续'))
+    }
+    const timer = window.setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, delay)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+interface DurableJobResponse<T> {
+  status?: 'running' | 'completed' | 'failed'
+  result?: T
+  error?: string
+  statusCode?: number
+}
+
+async function durableJsonPost<T>(jobId: string, url: string, apiKey: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
+  const created = await fetch('/__generation_jobs', {
+    method: 'POST',
+    signal,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: jobId, url, apiKey, payload }),
+  })
+  const createResult = await created.json().catch(() => ({})) as { error?: string }
+  if (!created.ok) throw new Error(createResult.error ? `无法创建可恢复任务：${createResult.error}` : '无法创建可恢复的本地生成任务')
+
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < 30 * 60 * 1000) {
+    const response = await fetch(`/__generation_jobs/${encodeURIComponent(jobId)}`, { signal })
+    const job = await response.json().catch(() => ({})) as DurableJobResponse<T>
+    if (!response.ok) throw new Error(job.error ?? '本地生成任务不存在，请重新提交')
+    if (job.status === 'completed' && job.result) return job.result
+    if (job.status === 'failed') {
+      if (job.statusCode === 401 || job.statusCode === 403) throw new Error('API Key 无效，或当前账号没有模型调用权限')
+      if (job.statusCode === 429) throw new Error(job.error ? `请求频率超过服务商限制：${job.error}` : '请求频率超过服务商限制，请等待一分钟后重试')
+      throw new Error(job.error ?? '远端生成任务失败')
+    }
+    await new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(resolve, 1000)
+      signal?.addEventListener('abort', () => { window.clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')) }, { once: true })
+    })
+  }
+  throw new Error('本地任务仍在运行，刷新页面后会自动继续查询')
+}
+
+export async function generateImage(settings: GenerationSettings, sessionId: string, signal?: AbortSignal, generationJobId: string = crypto.randomUUID()): Promise<GeneratedAsset[]> {
   const template = styleTemplates.find((item) => item.id === settings.styleId)
   const compiledPrompt = compilePrompt(settings, template)
   const imageOption = imageModels.find((model) => model.id === settings.imageModel) ?? imageModels[0]
   const imageModel = imageOption.id ?? DEFAULT_IMAGE_MODEL
+  const referenceImage = settings.firstFrame?.dataUrl
   const response = imageOption.provider === 'agnes'
-    ? await agnesFetch<{ data?: Array<{ url?: string; b64_json?: string }> }>('/images/generations', {
-        method: 'POST', signal,
-        body: JSON.stringify({ model: imageModel, prompt: compiledPrompt, size: settings.resolution, ratio: settings.ratio, extra_body: { response_format: 'url' } }),
-      })
-    : await arkFetch<{ data?: Array<{ url?: string; b64_json?: string }> }>('/images/generations', {
-        method: 'POST', signal,
-        body: JSON.stringify({ model: imageModel, prompt: compiledPrompt, size: settings.ratio === '1:1' ? settings.resolution : `${settings.resolution} ${settings.ratio}`, n: 1, response_format: 'url', watermark: false }),
-      })
-  return (response.data ?? []).flatMap((item) => {
+    ? await durableJsonPost<{ data?: Array<{ url?: string; b64_json?: string }> }>(
+        `image-${generationJobId}`,
+        `${config.agnesBaseUrl}/images/generations`,
+        config.agnesApiKey,
+        { model: imageModel, prompt: compiledPrompt, size: settings.resolution, ratio: settings.ratio, extra_body: { response_format: 'url', ...(referenceImage ? { image: [referenceImage] } : {}) } },
+        signal,
+      )
+    : await durableJsonPost<{ data?: Array<{ url?: string; b64_json?: string }> }>(
+        `image-${generationJobId}`,
+        `${config.baseUrl}/images/generations`,
+        config.apiKey,
+        { model: imageModel, prompt: compiledPrompt, size: settings.ratio === '1:1' ? settings.resolution : `${settings.resolution} ${settings.ratio}`, n: 1, response_format: 'url', watermark: false, ...(referenceImage ? { image: [referenceImage] } : {}) },
+        signal,
+      )
+  return (response.data ?? []).flatMap((item, index) => {
     const url = item.url ?? (item.b64_json ? `data:image/png;base64,${item.b64_json}` : '')
-    return url ? [{ id: crypto.randomUUID(), kind: 'image' as const, url, prompt: settings.prompt, compiledPrompt, createdAt: Date.now(), settings: snapshot(settings), sessionId }] : []
+    return url ? [{ id: `${generationJobId}-${index}`, kind: 'image' as const, url, prompt: settings.prompt, compiledPrompt, createdAt: Date.now(), settings: snapshot(settings), sessionId }] : []
   })
 }
 
@@ -132,7 +217,7 @@ interface ThreeDTaskResponse {
   error?: { message?: string }
 }
 
-export async function createVideoTask(settings: GenerationSettings, sessionId: string, signal?: AbortSignal): Promise<PendingVideoTask> {
+export async function createVideoTask(settings: GenerationSettings, sessionId: string, signal?: AbortSignal, requestId: string = crypto.randomUUID()): Promise<PendingVideoTask> {
   const template = styleTemplates.find((item) => item.id === settings.styleId)
   const compiledPrompt = compilePrompt(settings, template)
   const videoOption = videoModels.find((model) => model.id === settings.videoModel) ?? videoModels[0]
@@ -157,7 +242,7 @@ export async function createVideoTask(settings: GenerationSettings, sessionId: s
     } else if (settings.referenceImages?.length) {
       body.extra_body = { image: settings.referenceImages.slice(0, 2).map((image) => image.dataUrl), mode: 'keyframes' }
     }
-    const response = await agnesFetch<VideoTaskResponse>('/videos', { method: 'POST', signal, body: JSON.stringify(body) })
+    const response = await durableJsonPost<VideoTaskResponse>(`video-${requestId}`, `${config.agnesBaseUrl}/videos`, config.agnesApiKey, body, signal)
     const taskId = response.task_id ?? response.id
     if (!taskId) throw new Error('Agnes AI 未返回视频任务 ID，请核对当前 API 协议')
     return { taskId, videoId: response.video_id, provider: 'agnes', compiledPrompt, settings: snapshot(settings), sessionId, createdAt: Date.now() }
@@ -166,10 +251,13 @@ export async function createVideoTask(settings: GenerationSettings, sessionId: s
   if (settings.firstFrame) content.push({ type: 'image_url', image_url: { url: settings.firstFrame.dataUrl }, role: 'first_frame' })
   if (settings.lastFrame) content.push({ type: 'image_url', image_url: { url: settings.lastFrame.dataUrl }, role: 'last_frame' })
   settings.referenceImages?.forEach((image) => content.push({ type: 'image_url', image_url: { url: image.dataUrl }, role: 'reference_image' }))
-  const response = await arkFetch<VideoTaskResponse>('/contents/generations/tasks', {
-    method: 'POST', signal,
-    body: JSON.stringify({ model: videoModel, content, duration: settings.duration, ratio: settings.ratio, resolution: settings.resolution, watermark: false }),
-  })
+  const response = await durableJsonPost<VideoTaskResponse>(
+    `video-${requestId}`,
+    `${config.baseUrl}/contents/generations/tasks`,
+    config.apiKey,
+    { model: videoModel, content, duration: settings.duration, ratio: settings.ratio, resolution: settings.resolution, watermark: false },
+    signal,
+  )
   const taskId = response.id ?? response.task_id
   if (!taskId) throw new Error('方舟未返回视频任务 ID，请核对当前 API 协议')
   return { taskId, provider: 'ark', compiledPrompt, settings: snapshot(settings), sessionId, createdAt: Date.now() }
@@ -178,38 +266,54 @@ export async function createVideoTask(settings: GenerationSettings, sessionId: s
 export async function waitForVideo(task: PendingVideoTask, options: { signal?: AbortSignal; onState: (value: string) => void }) {
   const startedAt = Date.now()
   let attempt = 0
-  while (Date.now() - startedAt < 12 * 60 * 1000) {
-    const result = task.provider === 'agnes'
-      ? await agnesFetch<VideoTaskResponse>(`/agnesapi?video_id=${encodeURIComponent(task.videoId ?? task.taskId)}`, { method: 'GET', signal: options.signal })
-      : await arkFetch<VideoTaskResponse>(`/contents/generations/tasks/${task.taskId}`, { method: 'GET', signal: options.signal })
+  let nextAgnesPollAt = Math.max(Date.now(), task.createdAt + AGNES_VIDEO_POLL_INTERVAL_MS)
+  while (Date.now() - startedAt < 30 * 60 * 1000) {
+    if (task.provider === 'agnes' && nextAgnesPollAt > Date.now()) {
+      options.onState('等待 Agnes 免费档查询窗口')
+      await wait(nextAgnesPollAt - Date.now(), options.signal)
+    }
+
+    let result: VideoTaskResponse
+    try {
+      result = task.provider === 'agnes'
+        ? await agnesFetch<VideoTaskResponse>(`/agnesapi?video_id=${encodeURIComponent(task.videoId ?? task.taskId)}`, { method: 'GET', signal: options.signal })
+        : await arkFetch<VideoTaskResponse>(`/contents/generations/tasks/${task.taskId}`, { method: 'GET', signal: options.signal })
+    } catch (error) {
+      if (task.provider !== 'agnes' || !(error instanceof AgnesRateLimitError)) throw error
+      options.onState('Agnes 限流等待，任务仍在远端生成')
+      nextAgnesPollAt = Date.now() + error.retryAfterMs
+      continue
+    }
+
     const status = (result.status ?? '').toLowerCase()
     options.onState(status || 'processing')
     const url = result.metadata?.url ?? result.content?.video_url ?? result.output?.video_url ?? result.video_url
     if (url) return { id: crypto.randomUUID(), taskId: task.provider === 'agnes' ? task.videoId ?? task.taskId : task.taskId, kind: 'video' as const, url, prompt: task.settings.prompt, compiledPrompt: task.compiledPrompt, createdAt: Date.now(), settings: task.settings, sessionId: task.sessionId }
     if (['failed', 'error', 'cancelled', 'expired'].includes(status)) throw new Error(result.error?.message || `视频任务已${status === 'failed' || status === 'error' ? '失败' : status === 'cancelled' ? '取消' : '过期'}`)
-    const delay = attempt < 10 ? 2000 : 5000
+    const delay = task.provider === 'agnes' ? AGNES_VIDEO_POLL_INTERVAL_MS : attempt < 10 ? 2000 : 5000
     attempt += 1
-    await new Promise<void>((resolve, reject) => {
-      const timer = window.setTimeout(resolve, delay)
-      options.signal?.addEventListener('abort', () => { window.clearTimeout(timer); reject(new Error('已停止本地查询，远端任务可能仍在继续')) }, { once: true })
-    })
+    if (task.provider === 'agnes') nextAgnesPollAt = Date.now() + delay
+    else await wait(delay, options.signal)
   }
   throw new Error('查询等待已暂停，可稍后继续查询该视频任务')
 }
 
-export async function createThreeDTask(settings: GenerationSettings, sessionId: string, signal?: AbortSignal): Promise<PendingThreeDTask> {
+export async function createThreeDTask(settings: GenerationSettings, sessionId: string, signal?: AbortSignal, requestId: string = crypto.randomUUID()): Promise<PendingThreeDTask> {
   if (!settings.firstFrame) throw new Error('请先上传用于生成 3D 的参考图片')
   const command = settings.prompt.trim() || '--subdivisionlevel medium --fileformat glb'
-  const response = await arkFetch<ThreeDTaskResponse>('/contents/generations/tasks', {
-    method: 'POST', signal,
-    body: JSON.stringify({
+  const response = await durableJsonPost<ThreeDTaskResponse>(
+    `3d-${requestId}`,
+    `${config.baseUrl}/contents/generations/tasks`,
+    config.apiKey,
+    {
       model: settings.threeDModel ?? config.threeDModel,
       content: [
         { type: 'text', text: command },
         { type: 'image_url', image_url: { url: settings.firstFrame.dataUrl } },
       ],
-    }),
-  })
+    },
+    signal,
+  )
   const taskId = response.id ?? response.task_id
   if (!taskId) throw new Error('方舟未返回 3D 任务 ID，请核对当前 API 协议')
   return { taskId, compiledPrompt: command, settings: snapshot(settings), sessionId, createdAt: Date.now() }
