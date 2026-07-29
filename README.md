@@ -7,7 +7,7 @@
 - 图片生成与编辑：支持 4 个 Seedream 模型和 Agnes Image 2.0/2.1 Flash，可上传参考图，并配置画面比例、清晰度和视觉主题
 - 文生视频：支持 3 个 Seedance 2.0 模型和 Agnes Video V2.0；Seedance 支持文字、首帧、首尾帧和最多 9 张参考图模式
 - 多服务商切换：在模型选择器中直接切换火山方舟或 Agnes AI，并按当前模型检查对应 API Key
-- 模型中心：按大语言模型、图片、视频、语音、Embedding、重排和 3D 分类展示常用模型，标注完全免费、有免费额度、付费或动态计费
+- 模型广场：按语言、语音、视觉、向量和智能路由五大类展示常用模型，支持搜索、平台与费用筛选，并标注完全免费、有免费额度、付费或动态计费
 - 平台入口：每个目录模型都提供官方 API 文档、申请 Key、额度说明和剩余额度查询位置
 - 模型级提示词上限：根据所选模型动态使用最高字符数，切换模型时自动适配
 - 图片转 3D：支持 Seed3D 2.0 与 Hyper3D Gen2
@@ -101,9 +101,19 @@ npm run dev
 
 接口参数与模型能力以 [Agnes AI 官方文档](https://agnes-ai.com/zh-Hans/docs/overview) 为准；免费范围与限制参见 [常见问题](https://agnes-ai.com/zh-Hans/docs/faqs) 和 [Token 方案及 RPM 限制](https://agnes-ai.com/zh-Hans/docs/tokenplan)。
 
-## 模型中心与费用标记
+## 模型广场与费用标记
 
-左侧“模型中心”按能力分类展示 SiliconFlow、ModelScope、Gemini、Groq、OpenRouter、Cloudflare Workers AI、Hugging Face、阿里云百炼、Pollinations、火山方舟、Agnes AI、ElevenLabs、Jina AI 和 Cohere 的常用模型。
+左侧“模型中心”打开接近全屏的模型广场，展示 SiliconFlow、ModelScope、Gemini、Groq、OpenRouter、Cloudflare Workers AI、Hugging Face、阿里云百炼、Pollinations、火山方舟、Agnes AI、ElevenLabs、Jina AI 和 Cohere 的常用模型。界面采用顶部分类、左侧筛选和四列模型卡片布局；创作面板只保留常用生成模型，避免参数区过度拥挤。
+
+模型广场统一为五类：
+
+- `语言模型`：对话、推理与多模态理解模型。
+- `语音模型`：语音识别与语音合成模型。
+- `视觉模型`：图片、视频与 3D 生成模型。
+- `向量模型`：Embedding 与 Reranker 模型。
+- `智能路由模型`：根据可用性自动选择模型的路由服务。
+
+每一类都可继续按模型名称、API 模型 ID、服务平台和费用类型筛选；带有“已接入”标记的模型可通过“在工作台使用”直接切换到对应创作类型。
 
 费用标记含义：
 
@@ -121,7 +131,7 @@ npm run dev
 - SiliconFlow `Kwai-Kolors/Kolors`：`POST /v1/images/generations`。
 - Cloudflare Workers AI `@cf/black-forest-labs/flux-1-schnell`：需要 API Token 和 Account ID。
 
-模型中心中的“模型目录”条目已经完成分类、费用说明和配置检测，但尚未接入当前图片/视频画布的专用输入输出流程；“已接入工作台”条目可以直接生成。模型 ID 和免费策略会变化，使用前请通过卡片中的官方文档确认。
+模型广场中的“目录”条目已经完成分类、费用说明和配置检测，但尚未接入当前图片/视频画布的专用输入输出流程；“已接入”条目可以直接生成。模型 ID 和免费策略会变化，使用前请通过卡片中的官方文档确认。
 
 ## 图片转 3D
 

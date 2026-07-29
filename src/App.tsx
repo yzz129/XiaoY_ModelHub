@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Aperture, Box, Clock3, Film, Image, KeyRound, LibraryBig, Menu, PanelLeftClose, PanelLeftOpen, Plus, Settings, Sparkles, WandSparkles, X } from 'lucide-react'
 import { FrameUpload, PromptBox, ReferenceImageUpload } from './components/Controls'
-import { ModelCenter } from './components/ModelCenter'
+import { ModelCenter, type ModelFamily } from './components/ModelCenter'
 import { OutputStage } from './components/OutputStage'
 import { SettingsDialog } from './components/SettingsDialog'
 import { VideoTaskStrip } from './components/VideoTaskStrip'
 import { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL, getGenerationModel, getPromptLimit, imageModels, videoModels } from './data/models'
-import { catalogModels, pricingLabels } from './data/providerCatalog'
+import { catalogModels, pricingLabels, type CatalogModel } from './data/providerCatalog'
 import { styleTemplates } from './data/templates'
 import { useImageQueue } from './hooks/useImageQueue'
 import { useVideoQueue } from './hooks/useVideoQueue'
@@ -63,6 +63,7 @@ function App() {
   const [panelCollapsed, setPanelCollapsed] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [modelCenterOpen, setModelCenterOpen] = useState(false)
+  const [modelCenterFamily, setModelCenterFamily] = useState<ModelFamily>('language')
   const [notice, setNotice] = useState('')
   const [maxVideoConcurrency, setMaxVideoConcurrency] = useState(() => loadPreferences().maxVideoConcurrency)
   const [maxThreeDConcurrency, setMaxThreeDConcurrency] = useState(() => loadPreferences().maxThreeDConcurrency)
@@ -71,6 +72,20 @@ function App() {
   const failedAssetRefreshesRef = useRef(new Set<string>())
   const [refreshingAssetIds, setRefreshingAssetIds] = useState<string[]>([])
   const template = useMemo(() => styleTemplates.find((item) => item.id === settings.styleId)!, [settings.styleId])
+  const visibleImageModels = useMemo(() => {
+    const preferredIds = [
+      settings.imageModel ?? DEFAULT_IMAGE_MODEL,
+      DEFAULT_IMAGE_MODEL,
+      'agnes-image-2.1-flash',
+      'siliconflow-kolors',
+      'cloudflare-flux-schnell',
+    ]
+    return preferredIds
+      .filter((id, index) => preferredIds.indexOf(id) === index)
+      .map((id) => imageModels.find((model) => model.id === id))
+      .filter((model): model is (typeof imageModels)[number] => Boolean(model))
+      .slice(0, 4)
+  }, [settings.imageModel])
   const activeGenerationModel = settings.kind === '3d' ? undefined : getGenerationModel(settings)
   const activeHasApiKey = hasApiKeyForSettings(settings)
   const activeProviderName = getProviderName(settings)
@@ -106,6 +121,10 @@ function App() {
 
   function patch(next: Partial<GenerationSettings>) { setSettings((current) => ({ ...current, ...next })); setImageError(undefined) }
   function focusControls() { setCanvasView('session'); setMobilePanel(true); window.setTimeout(() => promptRef.current?.focus(), 80) }
+  function openModelCenter(family: ModelFamily) {
+    setModelCenterFamily(family)
+    setModelCenterOpen(true)
+  }
 
   function switchKind(kind: GenerationKind) {
     const videoModel = videoModels.find((model) => model.id === settings.videoModel) ?? videoModels[0]
@@ -140,6 +159,30 @@ function App() {
       ...(model.provider === 'agnes' ? { mode: 'text' as const, firstFrame: undefined, lastFrame: undefined, referenceImages: undefined } : {}),
     })
     if (model.provider === 'agnes' && settings.mode !== 'text') setNotice('Agnes AI 已切换为文生视频；当前本地上传素材不是公开 URL')
+  }
+
+  function useCatalogModel(model: CatalogModel) {
+    if (model.category === 'image') {
+      const target = imageModels.find((item) => (item.apiModel ?? item.id) === model.apiModel || item.id === model.id)
+      if (!target) return
+      switchKind('image')
+      selectImageModel(target.id)
+    } else if (model.category === 'video') {
+      const target = videoModels.find((item) => (item.apiModel ?? item.id) === model.apiModel || item.id === model.id)
+      if (!target) return
+      switchKind('video')
+      selectVideoModel(target.id)
+    } else if (model.category === '3d') {
+      const modelId = model.apiModel as ThreeDModel
+      switchKind('3d')
+      patch({ threeDModel: modelId })
+    } else {
+      return
+    }
+    setModelCenterOpen(false)
+    setPanelCollapsed(false)
+    setCanvasView('session')
+    setNotice(`已切换到 ${model.name}`)
   }
 
   function validate(next: GenerationSettings) {
@@ -257,7 +300,7 @@ function App() {
       <nav>
         <button type="button" className={`nav-item ${canvasView === 'session' ? 'active' : ''}`} aria-current={canvasView === 'session' ? 'page' : undefined} onClick={focusControls}><WandSparkles /><span>创作</span></button>
         <button type="button" className={`nav-item ${canvasView === 'history' ? 'active' : ''}`} aria-current={canvasView === 'history' ? 'page' : undefined} onClick={() => setCanvasView('history')}><Clock3 /><span>历史</span><b>{history.length}</b></button>
-        <button type="button" className="nav-item" onClick={() => setModelCenterOpen(true)}><LibraryBig /><span>模型中心</span><b>{catalogModels.length}</b></button>
+        <button type="button" className="nav-item" onClick={() => openModelCenter('language')}><LibraryBig /><span>模型中心</span><b>{catalogModels.length}</b></button>
       </nav>
       <div className="sidebar-bottom"><button type="button" className="nav-item" onClick={() => setSettingsOpen(true)}><Settings /><span>设置</span></button><div className="profile"><span>MS</span><div><strong>Muse Studio</strong><small>Local workspace</small></div></div></div>
     </aside>
@@ -283,8 +326,8 @@ function App() {
               {settings.kind === 'video' && settings.mode === 'reference-images' && <ReferenceImageUpload value={settings.referenceImages ?? []} onChange={(referenceImages) => { patch({ referenceImages }); setFrameError(undefined) }} error={frameError} />}
               {settings.kind === 'image' && activeGenerationModel?.supportsReferenceImage && <div className="frame-grid single"><FrameUpload label="参考图（可选）" hint="用于图生图或风格参考 · JPG / PNG / WebP · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} /></div>}
               {settings.kind === '3d' && <div className="frame-grid single"><FrameUpload label="3D 参考图片" hint="不足 300 × 300px 自动白边补齐 · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} minWidth={300} minHeight={300} /></div>}
-              {settings.kind === 'image' && <section className="control-section compact"><div className="section-label"><span>图片模型</span><button type="button" className="model-center-link" onClick={() => setModelCenterOpen(true)}>全部模型</button></div><div className="model-choice generation-model-choice">{imageModels.map((model) => <button type="button" key={model.id} aria-pressed={(settings.imageModel ?? DEFAULT_IMAGE_MODEL) === model.id} className={(settings.imageModel ?? DEFAULT_IMAGE_MODEL) === model.id ? 'active' : ''} onClick={() => selectImageModel(model.id)}><strong>{model.name}<b className={`inline-price ${model.pricing}`}>{pricingLabels[model.pricing]}</b></strong><span>{model.description}</span><small>{model.apiModel ?? model.id}</small></button>)}</div></section>}
-              {settings.kind === 'video' && <section className="control-section compact"><div className="section-label"><span>视频模型</span><button type="button" className="model-center-link" onClick={() => setModelCenterOpen(true)}>全部模型</button></div><div className="model-choice generation-model-choice">{videoModels.map((model) => <button type="button" key={model.id} aria-pressed={(settings.videoModel ?? DEFAULT_VIDEO_MODEL) === model.id} className={(settings.videoModel ?? DEFAULT_VIDEO_MODEL) === model.id ? 'active' : ''} onClick={() => selectVideoModel(model.id)}><strong>{model.name}<b className={`inline-price ${model.pricing}`}>{pricingLabels[model.pricing]}</b></strong><span>{model.description}</span><small>{model.apiModel ?? model.id}</small></button>)}</div></section>}
+              {settings.kind === 'image' && <section className="control-section compact"><div className="section-label"><span>常用图片模型</span><button type="button" className="model-center-link" onClick={() => openModelCenter('vision')}>查看全部 {imageModels.length}</button></div><div className="model-choice generation-model-choice">{visibleImageModels.map((model) => <button type="button" key={model.id} aria-pressed={(settings.imageModel ?? DEFAULT_IMAGE_MODEL) === model.id} className={(settings.imageModel ?? DEFAULT_IMAGE_MODEL) === model.id ? 'active' : ''} onClick={() => selectImageModel(model.id)}><strong>{model.name}<b className={`inline-price ${model.pricing}`}>{pricingLabels[model.pricing]}</b></strong><span>{model.description}</span><small>{model.apiModel ?? model.id}</small></button>)}</div></section>}
+              {settings.kind === 'video' && <section className="control-section compact"><div className="section-label"><span>视频模型</span><button type="button" className="model-center-link" onClick={() => openModelCenter('vision')}>查看全部 {videoModels.length}</button></div><div className="model-choice generation-model-choice">{videoModels.map((model) => <button type="button" key={model.id} aria-pressed={(settings.videoModel ?? DEFAULT_VIDEO_MODEL) === model.id} className={(settings.videoModel ?? DEFAULT_VIDEO_MODEL) === model.id ? 'active' : ''} onClick={() => selectVideoModel(model.id)}><strong>{model.name}<b className={`inline-price ${model.pricing}`}>{pricingLabels[model.pricing]}</b></strong><span>{model.description}</span><small>{model.apiModel ?? model.id}</small></button>)}</div></section>}
               {settings.kind === '3d' && <section className="control-section compact"><div className="section-label"><span>3D 模型</span><small>MODEL</small></div><div className="model-choice">{([['doubao-seed3d-2-0-260328', 'Seed3D 2.0'], ['hyper3d-gen2-260112', 'Hyper3D Gen2']] as Array<[ThreeDModel, string]>).map(([model, label]) => <button type="button" key={model} aria-pressed={(settings.threeDModel ?? 'doubao-seed3d-2-0-260328') === model} className={(settings.threeDModel ?? 'doubao-seed3d-2-0-260328') === model ? 'active' : ''} onClick={() => patch({ threeDModel: model })}><strong>{label}</strong><small>{model}</small></button>)}</div></section>}
               <section className="control-section"><div className="section-label"><label htmlFor="generation-prompt">{settings.kind === '3d' ? '输出命令（可选）' : '画面描述'}</label><small>{settings.kind === '3d' ? '3D OPTIONS' : 'PROMPT'}</small></div><PromptBox ref={promptRef} value={settings.prompt} onChange={(prompt) => { patch({ prompt }); setPromptError(undefined) }} onInspire={() => patch({ prompt: inspiration[Math.floor(Math.random() * inspiration.length)] })} maxLength={getPromptLimit(settings)} error={promptError} threeD={settings.kind === '3d'} /></section>
               {settings.kind !== '3d' && <section className="control-section"><div className="section-label"><span>视觉主题</span><small>STYLE</small></div><div className="template-preview" style={{ background: template.gradient }}><div><small>{template.eyebrow}</small><strong>{template.name}</strong><p>{template.description}</p></div><span>已应用</span></div><div className="template-row">{styleTemplates.map((item) => <button type="button" key={item.id} aria-pressed={settings.styleId === item.id} className={settings.styleId === item.id ? 'active' : ''} onClick={() => patch({ styleId: item.id })} style={{ background: item.gradient }}><span>{item.name}</span></button>)}</div></section>}
@@ -307,7 +350,7 @@ function App() {
     </main>
     {mobilePanel && <button type="button" className="drawer-close" aria-label="关闭参数面板" onClick={() => setMobilePanel(false)}><X /></button>}
     <SettingsDialog open={settingsOpen} maxVideoConcurrency={maxVideoConcurrency} maxThreeDConcurrency={maxThreeDConcurrency} onVideoConcurrencyChange={(value) => { const next = savePreferences({ maxVideoConcurrency: value, maxThreeDConcurrency }); setMaxVideoConcurrency(next.maxVideoConcurrency); setNotice(`视频最高并发已设为 ${next.maxVideoConcurrency}`) }} onThreeDConcurrencyChange={(value) => { const next = savePreferences({ maxVideoConcurrency, maxThreeDConcurrency: value }); setMaxThreeDConcurrency(next.maxThreeDConcurrency); setNotice(`3D 最高并发已设为 ${next.maxThreeDConcurrency}`) }} onClose={() => setSettingsOpen(false)} onClearHistory={() => { clearHistory(); setHistory([]); setSessionAssetIds([]); setSettingsOpen(false); setNotice('本地历史已清空') }} />
-    <ModelCenter open={modelCenterOpen} onClose={() => setModelCenterOpen(false)} />
+    <ModelCenter open={modelCenterOpen} initialFamily={modelCenterFamily} onUseModel={useCatalogModel} onClose={() => setModelCenterOpen(false)} />
     <div className="live-notice" aria-live="polite">{notice}</div>
   </div>
 }
