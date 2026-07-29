@@ -8,8 +8,9 @@ import { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL, getGenerationModel, getPrompt
 import { styleTemplates } from './data/templates'
 import { useVideoQueue } from './hooks/useVideoQueue'
 import { useThreeDQueue } from './hooks/useThreeDQueue'
-import { generateImage, hasApiKey, refreshAssetUrl } from './lib/ark'
+import { generateImage, getProviderName, hasApiKeyForSettings, refreshAssetUrl } from './lib/ark'
 import { clearHistory, loadHistory, loadPreferences, saveHistory, savePreferences } from './lib/storage'
+import { saveGeneratedAsset } from './lib/output'
 import { MAX_VIDEO_REFERENCE_IMAGES } from './lib/video'
 import type { AspectRatio, CanvasView, GeneratedAsset, GenerationKind, GenerationMode, GenerationSettings, ImageModel, Resolution, SettingsSnapshot, ThreeDJob, ThreeDModel, VideoJob, VideoModel } from './types/generation'
 
@@ -69,11 +70,14 @@ function App() {
   const [refreshingAssetIds, setRefreshingAssetIds] = useState<string[]>([])
   const template = useMemo(() => styleTemplates.find((item) => item.id === settings.styleId)!, [settings.styleId])
   const activeGenerationModel = settings.kind === '3d' ? undefined : getGenerationModel(settings)
+  const activeHasApiKey = hasApiKeyForSettings(settings)
+  const activeProviderName = getProviderName(settings)
   const sessionAssets = history.filter((asset) => sessionAssetIds.includes(asset.id))
   const visibleAssets = canvasView === 'session' ? sessionAssets : history
-  const addAsyncResult = useCallback((result: GeneratedAsset) => {
-    setHistory((current) => current.some((item) => item.taskId && item.taskId === result.taskId) ? current : [result, ...current])
-    if (result.sessionId === sessionId) setSessionAssetIds((current) => [result.id, ...current])
+  const addAsyncResult = useCallback(async (result: GeneratedAsset) => {
+    const saved = await saveGeneratedAsset(result)
+    setHistory((current) => current.some((item) => item.taskId && item.taskId === saved.taskId) ? current : [saved, ...current])
+    if (saved.sessionId === sessionId) setSessionAssetIds((current) => [saved.id, ...current])
   }, [sessionId])
   const videoQueue = useVideoQueue({ maxConcurrency: maxVideoConcurrency, onComplete: addAsyncResult, onNotice: setNotice })
   const threeDQueue = useThreeDQueue({ maxConcurrency: maxThreeDConcurrency, onComplete: addAsyncResult, onNotice: setNotice })
@@ -114,12 +118,18 @@ function App() {
   function selectVideoModel(videoModel: VideoModel) {
     const model = videoModels.find((item) => item.id === videoModel) ?? videoModels[0]
     if (settings.prompt.length > model.maxPromptLength) setNotice(`提示词已按 ${model.name} 上限截取为 ${model.maxPromptLength.toLocaleString()} 字符`)
-    patch({ videoModel, prompt: settings.prompt.slice(0, model.maxPromptLength), resolution: model.resolutions.includes(settings.resolution) ? settings.resolution : model.resolutions[0] })
+    patch({
+      videoModel,
+      prompt: settings.prompt.slice(0, model.maxPromptLength),
+      resolution: model.resolutions.includes(settings.resolution) ? settings.resolution : model.resolutions[0],
+      ...(model.provider === 'agnes' ? { mode: 'text' as const, firstFrame: undefined, lastFrame: undefined, referenceImages: undefined } : {}),
+    })
+    if (model.provider === 'agnes' && settings.mode !== 'text') setNotice('Agnes AI 已切换为文生视频；当前本地上传素材不是公开 URL')
   }
 
   function validate(next: GenerationSettings) {
     setPromptError(undefined); setFrameError(undefined)
-    if (!hasApiKey) { setImageError('请先在 .env.local 中配置火山方舟 API Key'); setSettingsOpen(true); return false }
+    if (!hasApiKeyForSettings(next)) { setImageError(`请先在 .env.local 中配置 ${getProviderName(next)} API Key`); setSettingsOpen(true); return false }
     if (next.kind !== '3d' && !next.prompt.trim()) { setPromptError('请先写下画面描述'); setImageError('还缺少画面描述'); promptRef.current?.focus(); return false }
     if (next.prompt.length > getPromptLimit(next)) { setPromptError(`当前模型最多支持 ${getPromptLimit(next).toLocaleString()} 个字符`); setImageError('提示词超过模型上限'); promptRef.current?.focus(); return false }
     if (next.kind === '3d' && !next.firstFrame) { setFrameError('图片转 3D 需要上传一张参考图片'); setImageError('请先上传参考图片'); return false }
@@ -151,10 +161,10 @@ function App() {
     setRefreshingAssetIds([...refreshingAssetsRef.current])
     try {
       const url = await refreshAssetUrl(asset)
-      if (url === asset.url) throw new Error('方舟返回的仍是已失效链接，请稍后重试')
+      const saved = await saveGeneratedAsset({ ...asset, url })
       failedAssetRefreshesRef.current.delete(failureKey)
-      setHistory((current) => current.map((item) => item.id === asset.id ? { ...item, url } : item))
-      setNotice(asset.kind === 'video' ? '视频链接已刷新' : '3D 模型链接已刷新')
+      setHistory((current) => current.map((item) => item.id === asset.id ? saved : item))
+      setNotice(asset.kind === 'video' ? '视频已重新保存到 output 文件夹' : '3D 模型已重新保存到 output 文件夹')
     } catch (caught) {
       failedAssetRefreshesRef.current.add(failureKey)
       setNotice(caught instanceof Error ? `链接刷新失败：${caught.message}` : '链接刷新失败')
@@ -193,9 +203,11 @@ function App() {
     if (imageLoading) return
     setImageLoading(true); setImageError(undefined); setLastFailedImage(values); imageAbortRef.current = new AbortController()
     try {
-      const results = await generateImage(values, sessionId, imageAbortRef.current.signal)
-      if (!results.length) throw new Error('方舟已响应，但没有返回可展示的图片')
+      const remoteResults = await generateImage(values, sessionId, imageAbortRef.current.signal)
+      if (!remoteResults.length) throw new Error(`${getProviderName(values)} 已响应，但没有返回可展示的图片`)
+      const results = await Promise.all(remoteResults.map((asset) => saveGeneratedAsset(asset, imageAbortRef.current?.signal)))
       addResult(results)
+      setNotice(`${results.length} 张图片已保存到 output/images`)
     } catch (caught) { setImageError(caught instanceof Error ? caught.message : '发生未知错误') }
     finally { setImageLoading(false); imageAbortRef.current = null }
   }
@@ -227,7 +239,13 @@ function App() {
     setHistory((current) => current.filter((item) => item.id !== asset.id)); setSessionAssetIds((current) => current.filter((id) => id !== asset.id)); setNotice('作品已从本地历史删除')
   }
 
-  const modes = settings.kind === 'image' ? [{ id: 'text', label: '文字生成' }] : settings.kind === '3d' ? [{ id: 'image-to-3d', label: '图片转 3D' }] : [{ id: 'text', label: '文字生成' }, { id: 'first-frame', label: '首帧生成' }, { id: 'first-last-frame', label: '首尾帧' }, { id: 'reference-images', label: '参考图生成' }]
+  const modes = settings.kind === 'image'
+    ? [{ id: 'text', label: '文字生成' }]
+    : settings.kind === '3d'
+      ? [{ id: 'image-to-3d', label: '图片转 3D' }]
+      : settings.videoModel === 'agnes-video-v2.0'
+        ? [{ id: 'text', label: '文字生成' }]
+        : [{ id: 'text', label: '文字生成' }, { id: 'first-frame', label: '首帧生成' }, { id: 'first-last-frame', label: '首尾帧' }, { id: 'reference-images', label: '参考图生成' }]
   return <div className={`app-shell ${panelCollapsed ? 'panel-collapsed' : ''}`}>
     <aside className="sidebar" aria-label="主导航">
       <div className="brand"><Aperture size={27} /><span>MUSE</span></div>
@@ -242,7 +260,7 @@ function App() {
       <header className="topbar">
         <button type="button" className="mobile-menu" aria-label="打开创作参数" aria-expanded={mobilePanel} aria-controls="control-panel" onClick={() => setMobilePanel(true)}><Menu /></button>
         <div className="workspace-title"><span>{canvasView === 'session' ? '创作工作台' : '作品历史'}</span><small>{activeGenerationModel?.name ?? 'Seed3D 2.0'}</small></div>
-        <div className="top-actions"><button type="button" className={`connection ${hasApiKey ? 'online' : ''}`} onClick={() => setSettingsOpen(true)}><i />{hasApiKey ? '方舟已连接' : '未配置 Key'}</button><button type="button" className="new-task top-new" onClick={newTask}><Plus /> 新建创作</button></div>
+        <div className="top-actions"><button type="button" className={`connection ${activeHasApiKey ? 'online' : ''}`} onClick={() => setSettingsOpen(true)}><i />{activeHasApiKey ? `${activeProviderName} 已连接` : `${activeProviderName} 未配置`}</button><button type="button" className="new-task top-new" onClick={newTask}><Plus /> 新建创作</button></div>
       </header>
 
       <div className="studio">
@@ -267,7 +285,7 @@ function App() {
               {settings.kind !== '3d' && <section className="control-section compact"><div className="section-label"><span>输出清晰度</span><small>QUALITY</small></div><div className="chips-row">{activeGenerationModel!.resolutions.map((resolution) => <button type="button" aria-pressed={settings.resolution === resolution} className={settings.resolution === resolution ? 'active' : ''} key={resolution} onClick={() => patch({ resolution: resolution as Resolution })}>{resolution}</button>)}</div></section>}
               {settings.kind === 'video' && <section className="control-section compact"><div className="section-label"><span>视频时长</span><small>DURATION</small></div><div className="chips-row">{[5, 10, 15].map((duration) => <button type="button" aria-pressed={settings.duration === duration} className={settings.duration === duration ? 'active' : ''} key={duration} onClick={() => patch({ duration })}>{duration} 秒</button>)}</div></section>}
             </div>
-            <div className="generate-wrap">{!hasApiKey && <button type="button" className="key-warning" onClick={() => setSettingsOpen(true)}><KeyRound /> 在 .env.local 中配置方舟 API Key</button>}<button className="generate-button" type="button" onClick={() => void submit()} disabled={settings.kind === 'image' && imageLoading} aria-busy={settings.kind === 'image' && imageLoading}><span><Sparkles />{settings.kind === 'video' ? '加入视频队列' : settings.kind === '3d' ? '加入 3D 队列' : imageLoading ? '创作中…' : '生成图片'}</span><b>{settings.kind === 'image' ? 'IMAGE' : settings.kind === 'video' ? 'VIDEO' : '3D'}</b></button></div>
+            <div className="generate-wrap">{!activeHasApiKey && <button type="button" className="key-warning" onClick={() => setSettingsOpen(true)}><KeyRound /> 在 .env.local 中配置 {activeProviderName} API Key</button>}<button className="generate-button" type="button" onClick={() => void submit()} disabled={settings.kind === 'image' && imageLoading} aria-busy={settings.kind === 'image' && imageLoading}><span><Sparkles />{settings.kind === 'video' ? '加入视频队列' : settings.kind === '3d' ? '加入 3D 队列' : imageLoading ? '创作中…' : '生成图片'}</span><b>{settings.kind === 'image' ? 'IMAGE' : settings.kind === 'video' ? 'VIDEO' : '3D'}</b></button></div>
           </>}
         </section>
 
@@ -276,7 +294,7 @@ function App() {
           <VideoTaskStrip jobs={videoQueue.jobs} maxConcurrency={maxVideoConcurrency} onOpenSettings={() => setSettingsOpen(true)} onPause={videoQueue.pause} onResume={videoQueue.resume} onRetry={videoQueue.retry} onRemove={videoQueue.remove} onReuse={(job) => reuseJob(job as VideoJob)} />
           <VideoTaskStrip kind="3d" jobs={threeDQueue.jobs} maxConcurrency={maxThreeDConcurrency} onOpenSettings={() => setSettingsOpen(true)} onPause={threeDQueue.pause} onResume={threeDQueue.resume} onRetry={threeDQueue.retry} onRemove={threeDQueue.remove} onReuse={(job) => reuseThreeDJob(job as ThreeDJob)} />
           <div className="canvas-content" role="tabpanel"><OutputStage assets={visibleAssets} view={canvasView} selectedId={selectedId} imageLoading={imageLoading} imageError={imageError} refreshingAssetIds={refreshingAssetIds} onRefreshAsset={refreshAsset} onSelect={selectAsset} onReuse={reuse} onRemove={removeAsset} onSuggestion={(prompt) => { patch({ prompt }); focusControls() }} onRetryImage={lastFailedImage ? () => void submit(lastFailedImage) : undefined} /></div>
-          <div className="canvas-foot"><span>作品仅保存在当前浏览器，远端链接可能过期</span><span>Powered by Volcengine Ark</span></div>
+          <div className="canvas-foot"><span>素材文件保存在 output 分类目录，作品索引保存在当前浏览器</span><span>Powered by Volcengine Ark</span></div>
         </section>
       </div>
     </main>

@@ -5,7 +5,7 @@ import type { GeneratedAsset, GenerationSettings, ThreeDJob } from '../types/gen
 
 interface UseThreeDQueueOptions {
   maxConcurrency: number
-  onComplete: (asset: GeneratedAsset) => void
+  onComplete: (asset: GeneratedAsset) => void | Promise<void>
   onNotice: (message: string) => void
 }
 
@@ -55,9 +55,9 @@ export function useThreeDQueue({ maxConcurrency, onComplete, onNotice }: UseThre
       activeRemoteTask = remoteTask
       updateJob(jobId, { status: 'running', remoteTask, providerStatus: 'queued' })
       const result = await waitForThreeD(remoteTask, { signal: controller.signal, onState: (providerStatus) => updateJob(jobId, { providerStatus }) })
-      onComplete(result)
+      await onComplete(result)
       setJobs((current) => current.filter((job) => job.id !== jobId))
-      onNotice('一个 3D 任务已完成，可在全部作品中下载 GLB 文件')
+      onNotice('一个 3D 任务已完成，并已保存到 output/models')
     } catch (caught) {
       const current = jobsRef.current.find((job) => job.id === jobId)
       if (current?.status !== 'paused') updateJob(jobId, { status: 'failed', remoteTask: current?.remoteTask ?? activeRemoteTask, error: caught instanceof Error ? caught.message : '3D 任务失败' })

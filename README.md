@@ -1,16 +1,18 @@
 # Muse Studio
 
-一个基于 React、TypeScript 和 Vite 构建的本地 AI 图片、视频与 3D 内容生成工作台，调用火山方舟模型完成创作。
+一个基于 React、TypeScript 和 Vite 构建的本地 AI 图片、视频与 3D 内容生成工作台，支持火山方舟与 Agnes AI 模型。
 
 ## 功能
 
-- 文生图：支持 4 个 Seedream 模型、画面比例、模型适配清晰度和视觉主题配置
-- 文生视频：支持 3 个 Seedance 2.0 模型，以及文字、首帧、首尾帧和最多 9 张参考图生成模式
-- 模型级提示词上限：根据所选方舟模型动态使用最高字符数，切换模型时自动适配
+- 文生图：支持 4 个 Seedream 模型和 Agnes Image 2.0/2.1 Flash，以及画面比例、模型适配清晰度和视觉主题配置
+- 文生视频：支持 3 个 Seedance 2.0 模型和 Agnes Video V2.0；Seedance 支持文字、首帧、首尾帧和最多 9 张参考图模式
+- 多服务商切换：在模型选择器中直接切换火山方舟或 Agnes AI，并按当前模型检查对应 API Key
+- 模型级提示词上限：根据所选模型动态使用最高字符数，切换模型时自动适配
 - 图片转 3D：支持 Seed3D 2.0 与 Hyper3D Gen2
 - 异步任务队列：视频与 3D 任务分别支持 1–4 个并发
 - 任务恢复：刷新页面后可继续查询已保存的异步任务
-- 本地历史：保存最近生成的图片、视频和 3D 文件链接
+- 本地素材：生成结果自动下载到 `output`，并按图片、视频和 3D 模型分类
+- 本地历史：保存最近生成的图片、视频和 3D 文件索引
 - 参数复用：从作品历史或任务队列快速恢复生成设置
 - GLB 预览：3D 任务完成后可在工作台内旋转、缩放、自动旋转，并可打开或下载模型文件
 - 失效链接恢复：视频或 3D 临时地址过期时，按原任务 ID 自动获取新地址
@@ -19,17 +21,17 @@
 
 | 类型 | 可选模型 | 提示词上限 |
 | --- | --- | --- |
-| 图片 | Seedream 5.0 Pro、5.0 Lite、4.5、4.0 | 最高 32,000 字符，按模型动态调整 |
-| 视频 | Seedance 2.0、2.0 Fast、2.0 Mini | 20,000 字符 |
+| 图片 | Seedream 5.0 Pro、5.0 Lite、4.5、4.0；Agnes Image 2.0/2.1 Flash | 最高 32,000 字符，按模型动态调整 |
+| 视频 | Seedance 2.0、2.0 Fast、2.0 Mini；Agnes Video V2.0 | 20,000 字符 |
 | 3D | Seed3D 2.0、Hyper3D Gen2 | 1,200 字符 |
 
-默认使用 `doubao-seedream-5-0-pro-260628` 和 `doubao-seedance-2-0-260128`。可通过 `VITE_ARK_IMAGE_MODEL` 与 `VITE_ARK_VIDEO_MODEL` 指定默认值；仅模型选择器内已验证的方舟模型会生效。
+默认使用 `doubao-seedream-5-0-pro-260628` 和 `doubao-seedance-2-0-260128`。可通过 `VITE_ARK_IMAGE_MODEL` 与 `VITE_ARK_VIDEO_MODEL` 指定默认值；Agnes AI 模型可直接在工作台模型选择器中选择。
 
 ## 环境要求
 
 - Node.js 20 或更高版本
 - npm
-- 已开通对应模型权限的火山方舟 API Key
+- 已开通对应模型权限的火山方舟或 Agnes AI API Key
 
 ## 安装
 
@@ -61,15 +63,31 @@ VITE_ARK_IMAGE_MODEL=doubao-seedream-5-0-pro-260628
 VITE_ARK_VIDEO_MODEL=doubao-seedance-2-0-260128
 VITE_ARK_3D_MODEL=doubao-seed3d-2-0-260328
 VITE_ARK_HYPER3D_MODEL=hyper3d-gen2-260112
+
+VITE_AGNES_API_KEY=你的AgnesAI APIKey
+VITE_AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
 ```
+
+只使用其中一个服务商时，另一个服务商的 API Key 可以留空；3D 生成目前仍使用火山方舟。
 
 启动开发服务：
 
 ```bash
-npm run dev -- --host 127.0.0.1 --port 5173
+npm run dev
 ```
 
-打开 <http://localhost:5173/>。
+开发服务器固定监听较少使用的 `43129` 端口。打开 <http://127.0.0.1:43129/>。
+
+## Agnes AI
+
+- 图片模型：`agnes-image-2.0-flash`、`agnes-image-2.1-flash`
+- 视频模型：`agnes-video-v2.0`
+- 图片通过 OpenAI 兼容的 `POST /v1/images/generations` 接口生成，支持 URL 或 Base64 响应解析。
+- 视频通过 `POST /v1/videos` 创建异步任务，工作台随后轮询任务状态，并从完成响应的 `metadata.url` 保存视频。
+- Agnes Video 当前在界面中开放文生视频。官方图生视频接口要求输入公开可访问的图片 URL，而本地上传组件生成的是 Data URI，因此切换到 Agnes Video 时会自动切回文字生成模式。
+- 工作台设置会分别显示火山方舟和 Agnes AI 的密钥连接状态。
+
+接口参数与模型能力以 [Agnes AI 官方文档](https://agnes-ai.com/zh-Hans/docs/overview) 为准。
 
 ## 图片转 3D
 
@@ -85,7 +103,7 @@ npm run dev -- --host 127.0.0.1 --port 5173
 5. 点击“加入 3D 队列”。
 6. 任务完成后，在作品区直接旋转、缩放预览，也可打开或下载 GLB 文件。
 
-视频和 3D 的最高并发数可以分别在“工作台设置”中调整。降低并发不会中断已经提交到方舟的任务。
+视频和 3D 的最高并发数可以分别在“工作台设置”中调整。降低并发不会中断已经提交到远端服务商的任务。
 
 ## 可用命令
 
@@ -105,9 +123,11 @@ npm run preview
 
 ## 数据存储
 
+- 生成的图片、视频和 3D 模型会分别保存到 `output/images`、`output/videos` 和 `output/models`。
+- 页面预览和下载会优先使用 `output` 中的本地文件，不再依赖容易过期的远端结果链接。
 - 图片、视频和 3D 作品历史保存在浏览器 `localStorage` 中。
 - 视频与 3D 异步任务保存在浏览器 `IndexedDB` 中。
-- 远端结果链接可能过期；应用会在预览失败时尝试按任务 ID 刷新，重要文件仍建议及时下载。
+- 历史中的旧远端链接如果失效，应用会按任务 ID 刷新，并把刷新后的文件保存到对应的 `output` 分类目录。
 - 清除浏览器站点数据会删除本地历史和任务恢复信息。
 
 ## 安全说明
@@ -116,8 +136,8 @@ npm run preview
 
 - 不要提交 `.env.local`。
 - 不要将当前实现直接公开部署。
-- 公开部署时，应将方舟请求迁移到服务端代理，并仅在服务端保存 API Key。
-- 如果 API Key 曾出现在截图、日志或提交记录中，请立即在火山方舟控制台作废并重新生成。
+- 公开部署时，应将火山方舟和 Agnes AI 请求迁移到服务端代理，并仅在服务端保存 API Key。
+- 如果 API Key 曾出现在截图、日志或提交记录中，请立即在对应服务商控制台作废并重新生成。
 
 ## 主要目录
 
@@ -126,7 +146,7 @@ src/
 ├─ components/       页面组件与任务状态界面
 ├─ data/             视觉主题模板
 ├─ hooks/            视频与 3D 并发任务队列
-├─ lib/              方舟 API、提示词和本地存储
+├─ lib/              模型服务 API、提示词和本地存储
 ├─ types/            TypeScript 类型
 ├─ App.tsx           工作台主界面
 └─ styles.css        全局样式
@@ -134,4 +154,4 @@ src/
 
 ## 注意
 
-调用图片、视频或 3D 模型可能产生费用。实际可用模型、调用额度和并发限制以火山方舟控制台中的账号配置为准。
+调用图片、视频或 3D 模型可能产生费用。实际可用模型、调用额度和并发限制以火山方舟或 Agnes AI 控制台中的账号配置为准。

@@ -5,3 +5,9 @@ dist
 .DS_Store
 frontend.out.log
 frontend.err.log
+output/images/*
+output/videos/*
+output/models/*
+!output/images/.gitkeep
+!output/videos/.gitkeep
+!output/models/.gitkeep

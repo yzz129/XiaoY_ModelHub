@@ -19,7 +19,7 @@ function normalizeAsset(value: unknown): GeneratedAsset | null {
   if (typeof asset.id !== 'string' || !['image', 'video', '3d'].includes(asset.kind ?? '') || typeof asset.url !== 'string') return null
   const kind = asset.kind as GeneratedAsset['kind']
   const prompt = typeof asset.prompt === 'string' ? asset.prompt : ''
-  return { id: asset.id, kind, url: asset.url, prompt, compiledPrompt: typeof asset.compiledPrompt === 'string' ? asset.compiledPrompt : prompt, createdAt: typeof asset.createdAt === 'number' ? asset.createdAt : Date.now(), settings: asset.settings ?? fallbackSettings(asset), sessionId: typeof asset.sessionId === 'string' ? asset.sessionId : 'legacy', taskId: typeof asset.taskId === 'string' ? asset.taskId : undefined }
+  return { id: asset.id, kind, url: asset.url, prompt, compiledPrompt: typeof asset.compiledPrompt === 'string' ? asset.compiledPrompt : prompt, createdAt: typeof asset.createdAt === 'number' ? asset.createdAt : Date.now(), settings: asset.settings ?? fallbackSettings(asset), sessionId: typeof asset.sessionId === 'string' ? asset.sessionId : 'legacy', taskId: typeof asset.taskId === 'string' ? asset.taskId : undefined, outputPath: typeof asset.outputPath === 'string' ? asset.outputPath : undefined }
 }
 
 export function loadHistory(): GeneratedAsset[] {

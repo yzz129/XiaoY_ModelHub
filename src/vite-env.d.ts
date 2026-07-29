@@ -7,6 +7,8 @@ interface ImportMetaEnv {
   readonly VITE_ARK_VIDEO_MODEL?: string
   readonly VITE_ARK_3D_MODEL?: string
   readonly VITE_ARK_HYPER3D_MODEL?: string
+  readonly VITE_AGNES_API_KEY?: string
+  readonly VITE_AGNES_BASE_URL?: string
 }
 
 interface ImportMeta {
