@@ -19,6 +19,7 @@ const providerKeys: Record<string, string> = {
   siliconflow: import.meta.env.VITE_SILICONFLOW_API_KEY ?? '',
   groq: import.meta.env.VITE_GROQ_API_KEY ?? '',
   openrouter: import.meta.env.VITE_OPENROUTER_API_KEY ?? '',
+  pollinations: import.meta.env.VITE_POLLINATIONS_API_KEY ?? '',
   elevenlabs: import.meta.env.VITE_ELEVENLABS_API_KEY ?? '',
 }
 

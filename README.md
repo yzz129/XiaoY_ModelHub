@@ -4,10 +4,10 @@
 
 ## 功能
 
-- 图片生成与编辑：支持 Seedream、Agnes Image、Kolors、FLUX、Z-Image 与 Qwen Image；兼容的模型可上传参考图，并配置画面比例、清晰度和视觉主题
+- 图片生成与编辑：支持 Seedream、Agnes Image、Kolors、FLUX、SDXL-Lightning、Sana、Kontext、GPT Image、Nova Canvas、Z-Image 与 Qwen Image；兼容的模型可上传参考图，并配置画面比例、清晰度和视觉主题
 - 文生视频：支持 3 个 Seedance 2.0 模型和 Agnes Video V2.0；Seedance 支持文字、首帧、首尾帧和最多 9 张参考图模式
-- 语言模型工作台：支持 SiliconFlow Qwen3 8B、Groq GPT-OSS 120B 和 OpenRouter 免费模型自动路由，可进行多轮对话、写作与总结
-- 语音模型工作台：支持 ElevenLabs Flash v2.5 文字转语音，以及 Groq Whisper Large V3 Turbo 音频转文字
+- 语言模型工作台：支持 SiliconFlow、Groq、OpenRouter 和 Pollinations，可切换明确的 `:free` 模型、开发者免费额度模型与 Pollen 赠送额度模型
+- 语音模型工作台：支持 ElevenLabs Flash v2.5 文字转语音，以及 Groq、Pollinations Whisper 音频转文字
 - 多服务商切换：在模型选择器中直接切换火山方舟或 Agnes AI，并按当前模型检查对应 API Key
 - 默认模型广场首页：采用浅色紫色控制台布局，按语言、语音、视觉、向量和智能路由五大类展示常用模型，支持搜索、平台与费用筛选
 - 平台入口：每个目录模型都提供官方 API 文档、申请 Key、额度说明和剩余额度查询位置
@@ -27,7 +27,7 @@
 
 | 类型 | 可选模型 | 提示词上限 |
 | --- | --- | --- |
-| 图片 | Seedream 5.0 Pro、5.0 Lite、4.5、4.0；Agnes Image 2.0/2.1 Flash；SiliconFlow Kolors；Cloudflare FLUX.1 Schnell；Pollinations Z-Image、FLUX、Qwen Image | 最高 32,000 字符，按模型动态调整 |
+| 图片 | Seedream、Agnes Image、Kolors；Cloudflare FLUX.1 Schnell、SDXL-Lightning；Pollinations Sana、Kontext、GPT Image Mini、FLUX Klein、Nova Canvas、Z-Image、FLUX、Qwen Image | 最高 32,000 字符，按模型动态调整 |
 | 视频 | Seedance 2.0、2.0 Fast、2.0 Mini；Agnes Video V2.0 | 20,000 字符 |
 | 3D | Seed3D 2.0、Hyper3D Gen2 | 1,200 字符 |
 
@@ -133,15 +133,17 @@ npm run dev
 
 “剩余额度”只有在平台提供账户 API 时才能自动读取。Cloudflare、Groq、Gemini、百炼等平台主要要求在控制台查看；模型中心会显示对应查询位置，不会用静态数字冒充账户实时余额。
 
-配置 `VITE_OPENROUTER_API_KEY` 或 `VITE_ELEVENLABS_API_KEY` 后，对应模型卡片会出现“查询额度”按钮，分别通过 OpenRouter Credits API 和 ElevenLabs Subscription API 显示实时剩余余额或字符数。
+配置 `VITE_OPENROUTER_API_KEY`、`VITE_POLLINATIONS_API_KEY` 或 `VITE_ELEVENLABS_API_KEY` 后，对应模型卡片会出现“查询额度”按钮，分别通过 OpenRouter Credits API、Pollinations `/account/balance` 和 ElevenLabs Subscription API 显示实时剩余余额、Pollen 或字符数。
 
 当前可在创作工作台直接调用的第三方新增模型：
 
-- SiliconFlow `Qwen/Qwen3-8B`、Groq `openai/gpt-oss-120b`、OpenRouter `openrouter/free`：语言模型多轮对话。
-- ElevenLabs `eleven_flash_v2_5`：文字转语音；Groq `whisper-large-v3-turbo`：音频转文字，免费档单文件最大 25MB。
+- SiliconFlow `Qwen/Qwen3-8B`；Groq GPT-OSS 120B/20B、Llama 3.1 8B；OpenRouter 自动免费路由以及 Ling 3.0 Flash、Laguna S 2.1、North Mini Code、Nemotron 3 Ultra、Gemma 4 31B 的 `:free` 路由；Pollinations OpenAI Fast、Mistral Small 3.2、GPT-OSS 20B：语言模型多轮对话。
+- ElevenLabs `eleven_flash_v2_5`：文字转语音；Groq Whisper Large V3/V3 Turbo 与 Pollinations Whisper：音频转文字，免费档单文件最大 25MB。
 - SiliconFlow `Kwai-Kolors/Kolors`：`POST /v1/images/generations`。
-- Cloudflare Workers AI `@cf/black-forest-labs/flux-1-schnell`：需要 API Token 和 Account ID。
-- Pollinations `zimage`、`flux`、`qwen-image`：使用统一的 `POST /v1/images/generations` 接口，需要配置 `VITE_POLLINATIONS_API_KEY`。当前按“有免费额度”标注，不代表无限免费。
+- Cloudflare Workers AI `@cf/black-forest-labs/flux-1-schnell` 与 `@cf/bytedance/stable-diffusion-xl-lightning`：需要 API Token 和 Account ID。
+- Pollinations Sana、Kontext、GPT Image Mini、FLUX Klein、Nova Canvas、Z-Image、FLUX 和 Qwen Image 3.0 Pro 社区模型：使用统一的 `POST /v1/images/generations` 接口，需要配置 `VITE_POLLINATIONS_API_KEY`。支持图片输入的模型会把上传图片作为 `image` 参数提交。
+
+截至 2026-07-29，Pollinations 官方 `qwen-image` 已标记为 `paid_only`，只可使用付费余额；工作台已把它从“有免费额度”修正为“付费”。视频列表中 Veo、Seedance、Wan、Grok Video 与 P-Video 同样为 `paid_only`；只有 Nova Reel 当前未标记 `paid_only`，因此在模型广场按“有免费额度”展示，但其同步 MP4 接口尚未接入可恢复的视频队列，不会显示“已接入”。
 
 模型广场中的“目录”条目已经完成分类、费用说明和配置检测，但尚未接入当前图片/视频画布的专用输入输出流程；“已接入”条目可以直接生成。模型 ID 和免费策略会变化，使用前请通过卡片中的官方文档确认。
 

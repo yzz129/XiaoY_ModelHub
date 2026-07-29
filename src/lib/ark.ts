@@ -212,19 +212,37 @@ export async function generateImage(settings: GenerationSettings, sessionId: str
       signal,
     )
   } else if (imageOption.provider === 'pollinations') {
+    const communityModel = imageModel.includes('/')
     response = await durableJsonPost<{ data?: Array<{ url?: string; b64_json?: string }> }>(
       `image-${generationJobId}`,
       `${config.pollinationsBaseUrl}/v1/images/generations`,
       config.pollinationsApiKey,
-      { model: imageModel, prompt: compiledPrompt, n: 1, size: imageSizes[settings.ratio], response_format: 'url' },
+      {
+        model: imageModel,
+        prompt: compiledPrompt,
+        n: 1,
+        size: imageSizes[settings.ratio],
+        response_format: communityModel ? 'b64_json' : 'url',
+        ...(referenceImage && imageOption.supportsReferenceImage ? { image: [referenceImage] } : {}),
+      },
       signal,
     )
   } else if (imageOption.provider === 'cloudflare') {
+    const dimensions = imageSizes[settings.ratio].split('x').map(Number)
+    const isSdxlLightning = imageModel === '@cf/bytedance/stable-diffusion-xl-lightning'
     response = await durableJsonPost<{ result?: { image?: string } }>(
       `image-${generationJobId}`,
       `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(config.cloudflareAccountId)}/ai/run/${imageModel}`,
       config.cloudflareApiToken,
-      { prompt: compiledPrompt, steps: 4 },
+      isSdxlLightning
+        ? {
+            prompt: compiledPrompt,
+            width: dimensions[0],
+            height: dimensions[1],
+            num_steps: 4,
+            ...(referenceImage ? { image_b64: referenceImage.split(',', 2)[1] ?? referenceImage, strength: 0.8 } : {}),
+          }
+        : { prompt: compiledPrompt, steps: 4 },
       signal,
     )
   } else {

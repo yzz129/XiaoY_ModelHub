@@ -65,6 +65,7 @@ function isAllowedGenerationUrl(value: string) {
       || url.hostname === 'apihub.agnes-ai.com'
       || url.hostname === 'api.siliconflow.cn'
       || url.hostname === 'api.cloudflare.com'
+      || url.hostname === 'gen.pollinations.ai'
     )
   } catch {
     return false
@@ -261,6 +262,7 @@ const chatProviderEndpoints: Record<string, string> = {
   siliconflow: 'https://api.siliconflow.cn/v1/chat/completions',
   groq: 'https://api.groq.com/openai/v1/chat/completions',
   openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+  pollinations: 'https://gen.pollinations.ai/v1/chat/completions',
 }
 const allowedSpeechVoices = new Set(['JBFqnCBsd6RMkjVDRZzb', '21m00Tcm4TlvDq8ikWAM', 'pNInz6obpgDQGcFmaJgB'])
 
@@ -361,7 +363,7 @@ const creativeAiMiddleware: Connect.NextHandleFunction = async (request, respons
     }
 
     if (task === 'stt') {
-      if (provider !== 'groq') throw new Error('该语音转文字服务商尚未接入')
+      if (provider !== 'groq' && provider !== 'pollinations') throw new Error('该语音转文字服务商尚未接入')
       const audioBase64 = typeof body.audioBase64 === 'string' ? body.audioBase64 : ''
       const fileName = typeof body.fileName === 'string' ? body.fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120) : 'audio.mp3'
       const mimeType = typeof body.mimeType === 'string' && body.mimeType.startsWith('audio/') ? body.mimeType : 'audio/mpeg'
@@ -372,7 +374,9 @@ const creativeAiMiddleware: Connect.NextHandleFunction = async (request, respons
       form.append('file', new Blob([new Uint8Array(audio)], { type: mimeType }), fileName)
       form.append('model', model)
       form.append('response_format', 'json')
-      const upstream = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      const upstream = await fetch(provider === 'pollinations'
+        ? 'https://gen.pollinations.ai/v1/audio/transcriptions'
+        : 'https://api.groq.com/openai/v1/audio/transcriptions', {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}` },
         body: form,
@@ -418,6 +422,18 @@ const providerQuotaMiddleware: Connect.NextHandleFunction = async (request, resp
       response.end(JSON.stringify({
         summary: remaining === undefined ? '已连接，但接口未返回可用余额' : `剩余 $${remaining.toFixed(4)}`,
         detail: typeof used === 'number' ? `累计已用 $${used.toFixed(4)}` : undefined,
+      }))
+      return
+    }
+
+    if (provider === 'pollinations') {
+      const upstream = await getProviderQuotaJson('https://gen.pollinations.ai/account/balance', { Authorization: `Bearer ${apiKey}` })
+      if (upstream.statusCode < 200 || upstream.statusCode >= 300) throw new Error(upstreamError(upstream.result, upstream.statusCode))
+      const balance = (upstream.result as { balance?: number }).balance
+      response.statusCode = 200
+      response.end(JSON.stringify({
+        summary: typeof balance === 'number' ? `剩余 ${balance.toFixed(4)} Pollen` : '已连接，但接口未返回 Pollen 余额',
+        detail: '包含任务赠送额度与已充值余额',
       }))
       return
     }

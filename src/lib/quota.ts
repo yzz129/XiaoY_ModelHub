@@ -5,6 +5,7 @@ export interface ProviderQuota {
 
 const quotaKeys: Record<string, string> = {
   openrouter: import.meta.env.VITE_OPENROUTER_API_KEY ?? '',
+  pollinations: import.meta.env.VITE_POLLINATIONS_API_KEY ?? '',
   elevenlabs: import.meta.env.VITE_ELEVENLABS_API_KEY ?? '',
 }
 
