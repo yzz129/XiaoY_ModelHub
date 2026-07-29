@@ -6,6 +6,8 @@
 
 - 图片生成与编辑：支持 Seedream、Agnes Image、Kolors、FLUX、Z-Image 与 Qwen Image；兼容的模型可上传参考图，并配置画面比例、清晰度和视觉主题
 - 文生视频：支持 3 个 Seedance 2.0 模型和 Agnes Video V2.0；Seedance 支持文字、首帧、首尾帧和最多 9 张参考图模式
+- 语言模型工作台：支持 SiliconFlow Qwen3 8B、Groq GPT-OSS 120B 和 OpenRouter 免费模型自动路由，可进行多轮对话、写作与总结
+- 语音模型工作台：支持 ElevenLabs Flash v2.5 文字转语音，以及 Groq Whisper Large V3 Turbo 音频转文字
 - 多服务商切换：在模型选择器中直接切换火山方舟或 Agnes AI，并按当前模型检查对应 API Key
 - 默认模型广场首页：采用浅色紫色控制台布局，按语言、语音、视觉、向量和智能路由五大类展示常用模型，支持搜索、平台与费用筛选
 - 平台入口：每个目录模型都提供官方 API 文档、申请 Key、额度说明和剩余额度查询位置
@@ -79,6 +81,10 @@ VITE_CLOUDFLARE_ACCOUNT_ID=你的Cloudflare Account ID
 
 VITE_POLLINATIONS_API_KEY=你的Pollinations APIKey
 VITE_POLLINATIONS_BASE_URL=https://gen.pollinations.ai
+
+VITE_GROQ_API_KEY=你的Groq APIKey
+VITE_OPENROUTER_API_KEY=你的OpenRouter APIKey
+VITE_ELEVENLABS_API_KEY=你的ElevenLabs APIKey
 ```
 
 只使用其中一个服务商时，其他服务商的 API Key 可以留空；3D 生成目前仍使用火山方舟。模型中心还识别 `VITE_MODELSCOPE_API_KEY`、`VITE_GEMINI_API_KEY`、`VITE_GROQ_API_KEY`、`VITE_OPENROUTER_API_KEY`、`VITE_HUGGINGFACE_TOKEN`、`VITE_DASHSCOPE_API_KEY`、`VITE_POLLINATIONS_API_KEY`、`VITE_ELEVENLABS_API_KEY`、`VITE_JINA_API_KEY` 和 `VITE_COHERE_API_KEY`，完整示例见 `.env.example`。
@@ -131,6 +137,8 @@ npm run dev
 
 当前可在创作工作台直接调用的第三方新增模型：
 
+- SiliconFlow `Qwen/Qwen3-8B`、Groq `openai/gpt-oss-120b`、OpenRouter `openrouter/free`：语言模型多轮对话。
+- ElevenLabs `eleven_flash_v2_5`：文字转语音；Groq `whisper-large-v3-turbo`：音频转文字，免费档单文件最大 25MB。
 - SiliconFlow `Kwai-Kolors/Kolors`：`POST /v1/images/generations`。
 - Cloudflare Workers AI `@cf/black-forest-labs/flux-1-schnell`：需要 API Token 和 Account ID。
 - Pollinations `zimage`、`flux`、`qwen-image`：使用统一的 `POST /v1/images/generations` 接口，需要配置 `VITE_POLLINATIONS_API_KEY`。当前按“有免费额度”标注，不代表无限免费。

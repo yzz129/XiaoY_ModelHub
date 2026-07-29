@@ -3,13 +3,15 @@ import {
   History,
   Image,
   KeyRound,
+  MessageSquareText,
+  Mic2,
   Sparkles,
   Video,
 } from 'lucide-react'
 import type { GenerationKind } from '../types/generation'
 import type { ModelFamily } from './ModelCenter'
 
-export type PortalView = 'marketplace' | 'studio'
+export type PortalView = 'marketplace' | 'studio' | 'language' | 'audio'
 
 interface PortalSidebarProps {
   view: PortalView
@@ -19,6 +21,8 @@ interface PortalSidebarProps {
   modelCount: number
   onMarketplace: (family?: ModelFamily) => void
   onStudio: (kind: GenerationKind) => void
+  onLanguage: () => void
+  onAudio: () => void
   onHistory: () => void
   onSettings: () => void
 }
@@ -49,6 +53,8 @@ export function PortalSidebar({
   modelCount,
   onMarketplace,
   onStudio,
+  onLanguage,
+  onAudio,
   onHistory,
   onSettings,
 }: PortalSidebarProps) {
@@ -64,6 +70,8 @@ export function PortalSidebar({
 
         <section>
           <small>创作中心</small>
+          <NavButton active={view === 'language'} icon={MessageSquareText} label="语言模型" onClick={onLanguage} />
+          <NavButton active={view === 'audio'} icon={Mic2} label="语音模型" onClick={onAudio} />
           <NavButton active={view === 'studio' && kind === 'image' && !historyActive} icon={Image} label="图像生成" onClick={() => onStudio('image')} />
           <NavButton active={view === 'studio' && kind === 'video' && !historyActive} icon={Video} label="视频生成" onClick={() => onStudio('video')} />
           <NavButton active={view === 'studio' && kind === '3d' && !historyActive} icon={Boxes} label="3D 生成" onClick={() => onStudio('3d')} />

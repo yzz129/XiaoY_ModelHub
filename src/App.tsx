@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Film, Image, KeyRound, Menu, PanelLeftClose, PanelLeftOpen, Plus, Sparkles, X } from 'lucide-react'
 import { FrameUpload, PromptBox, ReferenceImageUpload } from './components/Controls'
+import { LanguageStudio } from './components/LanguageStudio'
 import { ModelCenter, type ModelFamily } from './components/ModelCenter'
 import { OutputStage } from './components/OutputStage'
 import { PortalSidebar, type PortalView } from './components/PortalSidebar'
 import { SettingsDialog } from './components/SettingsDialog'
 import { VideoTaskStrip } from './components/VideoTaskStrip'
+import { VoiceStudio } from './components/VoiceStudio'
 import { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL, getGenerationModel, getPromptLimit, imageModels, videoModels } from './data/models'
 import { catalogModels, pricingLabels, type CatalogModel } from './data/providerCatalog'
 import { styleTemplates } from './data/templates'
@@ -16,6 +18,7 @@ import { getProviderName, hasApiKeyForSettings, refreshAssetUrl } from './lib/ar
 import { clearHistory, loadHistory, loadPreferences, saveHistory, savePreferences } from './lib/storage'
 import { saveGeneratedAsset } from './lib/output'
 import { MAX_VIDEO_REFERENCE_IMAGES } from './lib/video'
+import { languageModels, voiceModels } from './lib/creative'
 import type { AspectRatio, CanvasView, GeneratedAsset, GenerationKind, GenerationMode, GenerationSettings, ImageModel, Resolution, SettingsSnapshot, ThreeDJob, ThreeDModel, VideoJob, VideoModel } from './types/generation'
 
 const inspiration = [
@@ -65,6 +68,8 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [portalView, setPortalView] = useState<PortalView>('marketplace')
   const [modelCenterFamily, setModelCenterFamily] = useState<ModelFamily>('language')
+  const [languageModelId, setLanguageModelId] = useState(() => languageModels.find((model) => model.id === 'openrouter-free')?.id ?? languageModels[0]?.id ?? '')
+  const [voiceModelId, setVoiceModelId] = useState(() => voiceModels.find((model) => model.id === 'eleven-flash')?.id ?? voiceModels[0]?.id ?? '')
   const [notice, setNotice] = useState('')
   const [maxVideoConcurrency, setMaxVideoConcurrency] = useState(() => loadPreferences().maxVideoConcurrency)
   const [maxThreeDConcurrency, setMaxThreeDConcurrency] = useState(() => loadPreferences().maxThreeDConcurrency)
@@ -185,6 +190,16 @@ function App() {
       const modelId = model.apiModel as ThreeDModel
       switchKind('3d')
       patch({ threeDModel: modelId })
+    } else if (model.category === 'chat' && languageModels.some((item) => item.id === model.id)) {
+      setLanguageModelId(model.id)
+      setPortalView('language')
+      setNotice(`已切换到 ${model.name}`)
+      return
+    } else if (model.category === 'audio' && voiceModels.some((item) => item.id === model.id)) {
+      setVoiceModelId(model.id)
+      setPortalView('audio')
+      setNotice(`已切换到 ${model.name}`)
+      return
     } else {
       return
     }
@@ -312,12 +327,18 @@ function App() {
       modelCount={catalogModels.length}
       onMarketplace={(family = 'language') => openModelCenter(family)}
       onStudio={openStudio}
+      onLanguage={() => { setPortalView('language'); setMobilePanel(false) }}
+      onAudio={() => { setPortalView('audio'); setMobilePanel(false) }}
       onHistory={() => { setPortalView('studio'); setCanvasView('history'); setMobilePanel(false) }}
       onSettings={() => setSettingsOpen(true)}
     />
 
     {portalView === 'marketplace'
       ? <main className="marketplace-page-shell"><ModelCenter embedded initialFamily={modelCenterFamily} onUseModel={useCatalogModel} /></main>
+      : portalView === 'language'
+        ? <LanguageStudio selectedModelId={languageModelId} onModelChange={setLanguageModelId} onOpenModels={() => openModelCenter('language')} onOpenSettings={() => setSettingsOpen(true)} />
+        : portalView === 'audio'
+          ? <VoiceStudio selectedModelId={voiceModelId} onModelChange={setVoiceModelId} onOpenModels={() => openModelCenter('speech')} onOpenSettings={() => setSettingsOpen(true)} />
       : <main className="workspace">
       <header className="topbar">
         <button type="button" className="mobile-menu" aria-label="打开创作参数" aria-expanded={mobilePanel} aria-controls="control-panel" onClick={() => setMobilePanel(true)}><Menu /></button>

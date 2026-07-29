@@ -12,6 +12,7 @@ const savePath = '/__save_generated_asset'
 const outputPath = '/__generated_output/'
 const generationJobPath = '/__generation_jobs'
 const providerQuotaPath = '/__provider_quota'
+const creativeAiPath = '/__creative_ai'
 const projectRoot = fileURLToPath(new URL('.', import.meta.url))
 const outputRoot = resolve(projectRoot, 'output')
 const generationRequestTimeoutMs = 25 * 60 * 1000
@@ -254,6 +255,142 @@ function getProviderQuotaJson(target: string, headers: Record<string, string>) {
     upstreamRequest.on('error', reject)
     upstreamRequest.end()
   })
+}
+
+const chatProviderEndpoints: Record<string, string> = {
+  siliconflow: 'https://api.siliconflow.cn/v1/chat/completions',
+  groq: 'https://api.groq.com/openai/v1/chat/completions',
+  openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+}
+const allowedSpeechVoices = new Set(['JBFqnCBsd6RMkjVDRZzb', '21m00Tcm4TlvDq8ikWAM', 'pNInz6obpgDQGcFmaJgB'])
+
+function responseTextContent(payload: unknown) {
+  const content = (payload as { choices?: Array<{ message?: { content?: unknown } }> })?.choices?.[0]?.message?.content
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content.flatMap((item) => {
+      if (typeof item === 'string') return [item]
+      if (item && typeof item === 'object' && 'text' in item && typeof item.text === 'string') return [item.text]
+      return []
+    }).join('\n')
+  }
+  return ''
+}
+
+const creativeAiMiddleware: Connect.NextHandleFunction = async (request, response, next) => {
+  if (!request.url?.startsWith(creativeAiPath)) return next()
+  response.setHeader('Content-Type', 'application/json; charset=utf-8')
+  if (request.method !== 'POST') {
+    response.statusCode = 405
+    response.end(JSON.stringify({ error: 'Method not allowed' }))
+    return
+  }
+  try {
+    const body = await readRequestJson(request)
+    const task = typeof body.task === 'string' ? body.task : ''
+    const provider = typeof body.provider === 'string' ? body.provider : ''
+    const apiKey = typeof body.apiKey === 'string' ? body.apiKey : ''
+    const model = typeof body.model === 'string' ? body.model : ''
+    if (!apiKey) throw new Error('请先配置当前服务商的 API Key')
+    if (!model) throw new Error('缺少模型 ID')
+
+    if (task === 'chat') {
+      const endpoint = chatProviderEndpoints[provider]
+      if (!endpoint) throw new Error('该语言模型服务商尚未接入')
+      const messages = Array.isArray(body.messages)
+        ? body.messages.slice(-20).flatMap((message) => {
+          if (!message || typeof message !== 'object') return []
+          const role = 'role' in message && (message.role === 'user' || message.role === 'assistant') ? message.role : undefined
+          const content = 'content' in message && typeof message.content === 'string' ? message.content.slice(0, 32_000) : ''
+          return role && content ? [{ role, content }] : []
+        })
+        : []
+      if (!messages.length) throw new Error('请输入对话内容')
+      const systemPrompt = typeof body.systemPrompt === 'string' ? body.systemPrompt.slice(0, 2_000) : ''
+      const temperature = typeof body.temperature === 'number' && Number.isFinite(body.temperature)
+        ? Math.max(0, Math.min(1.5, body.temperature))
+        : 0.7
+      const upstream = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          ...(provider === 'openrouter' ? { 'HTTP-Referer': 'http://127.0.0.1:43129', 'X-Title': '小Y中转站' } : {}),
+        },
+        body: JSON.stringify({
+          model,
+          messages: [...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []), ...messages],
+          temperature,
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(120_000),
+      })
+      const result = await upstream.json().catch(() => ({}))
+      if (!upstream.ok) throw new Error(upstreamError(result, upstream.status))
+      const content = responseTextContent(result)
+      if (!content) throw new Error('模型未返回文本内容')
+      response.statusCode = 200
+      response.end(JSON.stringify({ content }))
+      return
+    }
+
+    if (task === 'tts') {
+      if (provider !== 'elevenlabs') throw new Error('该文字转语音服务商尚未接入')
+      const text = typeof body.text === 'string' ? body.text.trim().slice(0, 5_000) : ''
+      const voiceId = typeof body.voiceId === 'string' && allowedSpeechVoices.has(body.voiceId) ? body.voiceId : ''
+      if (!text) throw new Error('请输入需要朗读的文字')
+      if (!voiceId) throw new Error('不支持当前声音')
+      const upstream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
+        method: 'POST',
+        headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+        body: JSON.stringify({ text, model_id: model }),
+        signal: AbortSignal.timeout(120_000),
+      })
+      if (!upstream.ok) {
+        const result = await upstream.json().catch(() => ({}))
+        throw new Error(upstreamError(result, upstream.status))
+      }
+      const audio = Buffer.from(await upstream.arrayBuffer())
+      response.statusCode = 200
+      response.end(JSON.stringify({
+        audioBase64: audio.toString('base64'),
+        contentType: upstream.headers.get('content-type') ?? 'audio/mpeg',
+        characterCost: upstream.headers.get('character-cost') ?? undefined,
+      }))
+      return
+    }
+
+    if (task === 'stt') {
+      if (provider !== 'groq') throw new Error('该语音转文字服务商尚未接入')
+      const audioBase64 = typeof body.audioBase64 === 'string' ? body.audioBase64 : ''
+      const fileName = typeof body.fileName === 'string' ? body.fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120) : 'audio.mp3'
+      const mimeType = typeof body.mimeType === 'string' && body.mimeType.startsWith('audio/') ? body.mimeType : 'audio/mpeg'
+      const audio = Buffer.from(audioBase64, 'base64')
+      if (!audio.length) throw new Error('音频文件为空')
+      if (audio.length > 25 * 1024 * 1024) throw new Error('免费档单个音频文件不能超过 25MB')
+      const form = new FormData()
+      form.append('file', new Blob([new Uint8Array(audio)], { type: mimeType }), fileName)
+      form.append('model', model)
+      form.append('response_format', 'json')
+      const upstream = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+        signal: AbortSignal.timeout(120_000),
+      })
+      const result = await upstream.json().catch(() => ({})) as { text?: string }
+      if (!upstream.ok) throw new Error(upstreamError(result, upstream.status))
+      if (!result.text) throw new Error('模型未识别出文本')
+      response.statusCode = 200
+      response.end(JSON.stringify({ text: result.text }))
+      return
+    }
+
+    throw new Error('不支持的创作任务')
+  } catch (error) {
+    response.statusCode = 502
+    response.end(JSON.stringify({ error: error instanceof Error ? error.message : 'Creative AI request failed' }))
+  }
 }
 
 const providerQuotaMiddleware: Connect.NextHandleFunction = async (request, response, next) => {
@@ -525,6 +662,7 @@ const assetProxy: Connect.NextHandleFunction = (request, response, next) => {
 const assetProxyPlugin: Plugin = {
   name: 'volcengine-asset-proxy',
   configureServer(server) {
+    server.middlewares.use(creativeAiMiddleware)
     server.middlewares.use(providerQuotaMiddleware)
     server.middlewares.use(durableGenerationMiddleware)
     server.middlewares.use(saveGeneratedAsset)
@@ -532,6 +670,7 @@ const assetProxyPlugin: Plugin = {
     server.middlewares.use(assetProxy)
   },
   configurePreviewServer(server) {
+    server.middlewares.use(creativeAiMiddleware)
     server.middlewares.use(providerQuotaMiddleware)
     server.middlewares.use(durableGenerationMiddleware)
     server.middlewares.use(saveGeneratedAsset)
