@@ -2,6 +2,7 @@ import { request as httpsRequest } from 'node:https'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { copyFile, mkdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, extname, join, relative, resolve, sep } from 'node:path'
+import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, type Connect, type Plugin } from 'vite'
@@ -163,7 +164,10 @@ function generationNetworkError(error: unknown, target: string) {
   const cause = withCause.cause && typeof withCause.cause === 'object' ? withCause.cause as { code?: string; message?: string } : undefined
   const code = cause?.code ?? withCause.code ?? 'UPSTREAM_NETWORK_ERROR'
   const detail = cause?.message ?? direct.message
-  const provider = new URL(target).hostname === 'apihub.agnes-ai.com' ? 'Agnes AI' : '火山方舟'
+  const hostname = new URL(target).hostname
+  const provider = hostname === 'apihub.agnes-ai.com' ? 'Agnes AI'
+    : hostname === 'gen.pollinations.ai' ? 'Pollinations'
+      : '火山方舟'
   const descriptions: Record<string, string> = {
     ECONNRESET: `${provider} 在结果返回完成前关闭了连接`,
     ETIMEDOUT: `连接 ${provider} 超时`,
@@ -231,6 +235,45 @@ function postGenerationJson(target: string, apiKey: string, payload: Record<stri
   })
 }
 
+async function getGenerationVideo(target: string, apiKey: string, jobId: string) {
+  const upstream = await fetch(target, {
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'video/mp4,video/*;q=0.9,application/json;q=0.5' },
+    signal: AbortSignal.timeout(generationRequestTimeoutMs),
+  })
+  if (!upstream.ok) {
+    const text = await upstream.text()
+    let result: unknown
+    try { result = text ? JSON.parse(text) : {} } catch { result = { message: text.slice(0, 2000) } }
+    return { statusCode: upstream.status, result }
+  }
+  if (!upstream.body) return { statusCode: 502, result: { message: 'Video response has no body' } }
+  const declaredSize = Number(upstream.headers.get('content-length') ?? 0)
+  if (declaredSize > maxGenerationResponseBytes) return { statusCode: 413, result: { message: 'Video response is larger than 100 MB' } }
+
+  const folder = join(outputRoot, outputFolders.video)
+  await mkdir(folder, { recursive: true })
+  const baseName = `${timestampLabel(Date.now())}_${safeAssetId(jobId)}`
+  const extension = chooseExtension('video', upstream.headers.get('content-type') ?? 'video/mp4', upstream.url || target)
+  const destination = join(folder, `${baseName}${extension}`)
+  const temporary = `${destination}.${crypto.randomUUID()}.part`
+  let received = 0
+  const limiter = new Transform({
+    transform(chunk, _encoding, callback) {
+      received += Buffer.byteLength(chunk)
+      callback(received > maxGenerationResponseBytes ? new Error('Video response is larger than 100 MB') : null, chunk)
+    },
+  })
+  try {
+    await pipeline(upstream.body, limiter, createWriteStream(temporary))
+    await copyFile(temporary, destination)
+  } finally {
+    await unlink(temporary).catch(() => undefined)
+  }
+  const relativePath = relative(projectRoot, destination).split(sep).join('/')
+  const publicUrl = `${outputPath}${relative(outputRoot, destination).split(sep).map(encodeURIComponent).join('/')}`
+  return { statusCode: upstream.status, result: { url: publicUrl, path: relativePath } }
+}
+
 function getProviderQuotaJson(target: string, headers: Record<string, string>) {
   return new Promise<{ statusCode: number; result: unknown }>((resolve, reject) => {
     const targetUrl = new URL(target)
@@ -265,6 +308,11 @@ const chatProviderEndpoints: Record<string, string> = {
   pollinations: 'https://gen.pollinations.ai/v1/chat/completions',
 }
 const allowedSpeechVoices = new Set(['JBFqnCBsd6RMkjVDRZzb', '21m00Tcm4TlvDq8ikWAM', 'pNInz6obpgDQGcFmaJgB'])
+const pollinationsSpeechVoices: Record<string, string> = {
+  JBFqnCBsd6RMkjVDRZzb: 'george',
+  '21m00Tcm4TlvDq8ikWAM': 'rachel',
+  pNInz6obpgDQGcFmaJgB: 'adam',
+}
 
 function responseTextContent(payload: unknown) {
   const content = (payload as { choices?: Array<{ message?: { content?: unknown } }> })?.choices?.[0]?.message?.content
@@ -337,17 +385,24 @@ const creativeAiMiddleware: Connect.NextHandleFunction = async (request, respons
     }
 
     if (task === 'tts') {
-      if (provider !== 'elevenlabs') throw new Error('该文字转语音服务商尚未接入')
+      if (provider !== 'elevenlabs' && provider !== 'pollinations') throw new Error('该文字转语音服务商尚未接入')
       const text = typeof body.text === 'string' ? body.text.trim().slice(0, 5_000) : ''
       const voiceId = typeof body.voiceId === 'string' && allowedSpeechVoices.has(body.voiceId) ? body.voiceId : ''
       if (!text) throw new Error('请输入需要朗读的文字')
       if (!voiceId) throw new Error('不支持当前声音')
-      const upstream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
-        method: 'POST',
-        headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
-        body: JSON.stringify({ text, model_id: model }),
-        signal: AbortSignal.timeout(120_000),
-      })
+      const upstream = provider === 'pollinations'
+        ? await fetch('https://gen.pollinations.ai/v1/audio/speech', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+            body: JSON.stringify({ input: text, model, voice: pollinationsSpeechVoices[voiceId], response_format: 'mp3' }),
+            signal: AbortSignal.timeout(120_000),
+          })
+        : await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
+            method: 'POST',
+            headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+            body: JSON.stringify({ text, model_id: model }),
+            signal: AbortSignal.timeout(120_000),
+          })
       if (!upstream.ok) {
         const result = await upstream.json().catch(() => ({}))
         throw new Error(upstreamError(result, upstream.status))
@@ -474,9 +529,10 @@ const durableGenerationMiddleware: Connect.NextHandleFunction = async (request, 
       const target = typeof body.url === 'string' ? body.url : ''
       const apiKey = typeof body.apiKey === 'string' ? body.apiKey : ''
       const payload = body.payload
+      const responseType = body.responseType === 'video' ? 'video' : 'json'
       if (!isAllowedGenerationUrl(target)) throw new Error('Unsupported generation endpoint')
       if (!apiKey) throw new Error('Missing API Key')
-      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Missing generation payload')
+      if (responseType === 'json' && (!payload || typeof payload !== 'object' || Array.isArray(payload))) throw new Error('Missing generation payload')
 
       let job = durableGenerationJobs.get(id)
       if (!job) {
@@ -484,7 +540,9 @@ const durableGenerationMiddleware: Connect.NextHandleFunction = async (request, 
         durableGenerationJobs.set(id, job)
         void (async () => {
           try {
-            const upstream = await postGenerationJson(target, apiKey, payload as Record<string, unknown>)
+            const upstream = responseType === 'video'
+              ? await getGenerationVideo(target, apiKey, id)
+              : await postGenerationJson(target, apiKey, payload as Record<string, unknown>)
             const current = durableGenerationJobs.get(id)
             if (!current) return
             if (upstream.statusCode < 200 || upstream.statusCode >= 300) {

@@ -77,6 +77,10 @@ export const speechVoices: SpeechVoice[] = [
   { id: 'pNInz6obpgDQGcFmaJgB', name: 'Adam', description: '厚实有力，适合宣传' },
 ]
 
+export function isTextToSpeechModel(model: CatalogModel) {
+  return model.providerId === 'elevenlabs' || model.apiModel.includes('tts') || model.apiModel.startsWith('eleven')
+}
+
 export async function createSpeech(
   model: CatalogModel,
   text: string,

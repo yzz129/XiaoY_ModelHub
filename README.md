@@ -4,10 +4,10 @@
 
 ## 功能
 
-- 图片生成与编辑：支持 Seedream、Agnes Image、Kolors、FLUX、SDXL-Lightning、Sana、Kontext、GPT Image、Nova Canvas、Z-Image 与 Qwen Image；兼容的模型可上传参考图，并配置画面比例、清晰度和视觉主题
-- 文生视频：支持 3 个 Seedance 2.0 模型和 Agnes Video V2.0；Seedance 支持文字、首帧、首尾帧和最多 9 张参考图模式
-- 语言模型工作台：支持 SiliconFlow、Groq、OpenRouter 和 Pollinations，可切换明确的 `:free` 模型、开发者免费额度模型与 Pollen 赠送额度模型
-- 语音模型工作台：支持 ElevenLabs Flash v2.5 文字转语音，以及 Groq、Pollinations Whisper 音频转文字
+- 图片生成与编辑：除 Seedream、Agnes、Cloudflare 和 Pollinations 免费额度模型外，已接入 Nano Banana Pro、Seedream 5 Pro、Ideogram V4 Turbo、Wan Image Pro、Grok Imagine Pro 与 Qwen Image 等付费模型；兼容模型可上传参考图
+- 文生视频：支持方舟 Seedance、Agnes Video，以及 Pollinations Veo 3.1、Seedance 2.0、Wan Fast/Pro 和 Grok Video Pro；Pollinations 视频由本地服务持有长连接并直接保存到 `output/videos`
+- 语言模型工作台：支持 SiliconFlow、Groq、OpenRouter 和 Pollinations；除免费模型外，可直接切换 GPT-5.4、Claude Sonnet 5、Gemini 3.1 Pro Preview 和 DeepSeek V4 Pro
+- 语音模型工作台：支持 ElevenLabs Flash v2.5、Pollinations Qwen TTS 文字转语音，以及 Groq、Pollinations Whisper 音频转文字
 - 多服务商切换：在模型选择器中直接切换火山方舟或 Agnes AI，并按当前模型检查对应 API Key
 - 默认模型广场首页：采用浅色紫色控制台布局，按语言、语音、视觉、向量和智能路由五大类展示常用模型，支持搜索、平台与费用筛选
 - 平台入口：每个目录模型都提供官方 API 文档、申请 Key、额度说明和剩余额度查询位置
@@ -27,8 +27,8 @@
 
 | 类型 | 可选模型 | 提示词上限 |
 | --- | --- | --- |
-| 图片 | Seedream、Agnes Image、Kolors；Cloudflare FLUX.1 Schnell、SDXL-Lightning；Pollinations Sana、Kontext、GPT Image Mini、FLUX Klein、Nova Canvas、Z-Image、FLUX、Qwen Image | 最高 32,000 字符，按模型动态调整 |
-| 视频 | Seedance 2.0、2.0 Fast、2.0 Mini；Agnes Video V2.0 | 20,000 字符 |
+| 图片 | Seedream、Agnes Image、Kolors、Cloudflare FLUX/SDXL；Pollinations 免费额度及 Nano Banana Pro、Seedream 5 Pro、Ideogram V4 Turbo、Wan Image Pro、Grok Imagine Pro、Qwen Image 付费模型 | 最高 32,000 字符，按模型动态调整 |
+| 视频 | 方舟 Seedance、Agnes Video；Pollinations Veo 3.1、Seedance 2.0、Wan Fast/Pro、Grok Video Pro | 最高 32,000 字符，按模型动态调整 |
 | 3D | Seed3D 2.0、Hyper3D Gen2 | 1,200 字符 |
 
 默认使用 `doubao-seedream-5-0-pro-260628` 和 `doubao-seedance-2-0-260128`。可通过 `VITE_ARK_IMAGE_MODEL` 与 `VITE_ARK_VIDEO_MODEL` 指定默认值；Agnes AI 模型可直接在工作台模型选择器中选择。
@@ -132,6 +132,10 @@ npm run dev
 - `按模型计费`：同一平台同时存在免费和付费模型，应以模型页的实时标记为准。
 
 “剩余额度”只有在平台提供账户 API 时才能自动读取。Cloudflare、Groq、Gemini、百炼等平台主要要求在控制台查看；模型中心会显示对应查询位置，不会用静态数字冒充账户实时余额。
+
+Pollinations 付费模型会消耗已充值 Pollen，工作台可通过 `/account/balance` 显示当前余额。视频价格通常按生成秒数计算，音频或参考图可能另行计费；界面显示的是接入时的官方模型目录价格提示，实际扣费始终以请求时的 Pollinations 返回结果为准。HTTP 402 会明确显示为付费余额不足。
+
+Pollinations 参考图会先通过官方 `/upload` 接口生成临时公开地址，再提交视频。视频请求本身运行在 Vite 本地服务的可恢复任务中，浏览器刷新不会取消上游下载；完成后直接写入 `output/videos`，避免再次下载和重复计费。
 
 配置 `VITE_OPENROUTER_API_KEY`、`VITE_POLLINATIONS_API_KEY` 或 `VITE_ELEVENLABS_API_KEY` 后，对应模型卡片会出现“查询额度”按钮，分别通过 OpenRouter Credits API、Pollinations `/account/balance` 和 ElevenLabs Subscription API 显示实时剩余余额、Pollen 或字符数。
 

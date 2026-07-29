@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { AudioLines, Download, FileAudio, KeyRound, Mic2, Square, Upload, WandSparkles } from 'lucide-react'
 import { pricingLabels } from '../data/providerCatalog'
-import { createSpeech, hasCreativeProviderKey, speechVoices, transcribeSpeech, voiceModels } from '../lib/creative'
+import { createSpeech, hasCreativeProviderKey, isTextToSpeechModel, speechVoices, transcribeSpeech, voiceModels } from '../lib/creative'
 
 interface VoiceStudioProps {
   selectedModelId: string
@@ -20,7 +20,7 @@ export function VoiceStudio({ selectedModelId, onModelChange, onOpenModels, onOp
   const [loading, setLoading] = useState(false)
   const abortRef = useRef<AbortController | undefined>(undefined)
   const model = useMemo(() => voiceModels.find((item) => item.id === selectedModelId) ?? voiceModels[0], [selectedModelId])
-  const isTts = model.providerId === 'elevenlabs'
+  const isTts = isTextToSpeechModel(model)
   const hasKey = hasCreativeProviderKey(model.providerId)
 
   async function run() {
@@ -68,7 +68,7 @@ export function VoiceStudio({ selectedModelId, onModelChange, onOpenModels, onOp
           <div className="creative-section-head"><div><small>MODEL</small><strong>选择语音模型</strong></div><button type="button" onClick={onOpenModels}>模型广场</button></div>
           <div className="creative-model-list">
             {voiceModels.map((item) => <button type="button" key={item.id} className={item.id === model.id ? 'active' : ''} aria-pressed={item.id === model.id} onClick={() => { onModelChange(item.id); setError('') }}>
-              <span className="model-letter">{item.providerId === 'groq' ? 'G' : 'E'}</span>
+              <span className="model-letter">{item.providerId === 'groq' ? 'G' : item.providerId === 'pollinations' ? 'P' : 'E'}</span>
               <span><strong>{item.name}<b className={`inline-price ${item.pricing}`}>{pricingLabels[item.pricing]}</b></strong><small>{item.description}</small></span>
             </button>)}
           </div>

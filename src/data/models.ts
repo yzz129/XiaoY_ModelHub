@@ -9,6 +9,7 @@ export interface GenerationModelOption<T extends ImageModel | VideoModel> {
   resolutions: Resolution[]
   maxPromptLength: number
   supportsReferenceImage?: boolean
+  durations?: number[]
   pricing: 'free' | 'free-quota' | 'paid' | 'variable'
 }
 
@@ -31,13 +32,24 @@ export const imageModels: GenerationModelOption<ImageModel>[] = [
   { id: 'pollinations-flux', apiModel: 'flux', name: 'FLUX', description: 'Pollinations · 赠送额度可用', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, pricing: 'free-quota' },
   { id: 'pollinations-qwen-image-community', apiModel: 'Catniti/qwen-image-3.0-pro', name: 'Qwen Image 3.0 Pro', description: 'Pollinations 社区 · 赠送额度可用', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, pricing: 'free-quota' },
   { id: 'pollinations-qwen-image', apiModel: 'qwen-image', name: 'Qwen Image', description: 'Pollinations · 当前为付费专用', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'paid' },
+  { id: 'pollinations-nanobanana-pro', apiModel: 'nanobanana-pro', name: 'Nano Banana Pro', description: 'Pollinations · 付费 · 支持参考图', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'paid' },
+  { id: 'pollinations-seedream5-pro', apiModel: 'seedream5-pro', name: 'Seedream 5 Pro', description: 'Pollinations · 约 0.09 Pollen/张', provider: 'pollinations', resolutions: ['1K', '2K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'paid' },
+  { id: 'pollinations-ideogram-v4-turbo', apiModel: 'ideogram-v4-turbo', name: 'Ideogram V4 Turbo', description: 'Pollinations · 约 0.03 Pollen/张', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, pricing: 'paid' },
+  { id: 'pollinations-wan-image-pro', apiModel: 'wan-image-pro', name: 'Wan Image Pro', description: 'Pollinations · 约 0.03 Pollen/张', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'paid' },
+  { id: 'pollinations-grok-imagine-pro', apiModel: 'grok-imagine-pro', name: 'Grok Imagine Pro', description: 'Pollinations · 付费高质量生图', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'paid' },
 ]
 
 export const videoModels: GenerationModelOption<VideoModel>[] = [
-  { id: 'doubao-seedance-2-0-260128', name: 'Seedance 2.0', description: '方舟 · 旗舰画质与多模态参考', provider: 'ark', resolutions: ['720p', '1080p'], maxPromptLength: 20000, pricing: 'paid' },
-  { id: 'doubao-seedance-2-0-fast-260128', name: 'Seedance 2.0 Fast', description: '方舟 · 快速生成与动态表现', provider: 'ark', resolutions: ['720p'], maxPromptLength: 20000, pricing: 'paid' },
-  { id: 'doubao-seedance-2-0-mini-260615', name: 'Seedance 2.0 Mini', description: '方舟 · 轻量高性价比', provider: 'ark', resolutions: ['720p'], maxPromptLength: 20000, pricing: 'paid' },
-  { id: 'agnes-video-v2.0', name: 'Agnes Video V2.0', description: 'Agnes AI · 免费但限流', provider: 'agnes', resolutions: ['720p', '1080p'], maxPromptLength: 20000, pricing: 'free' },
+  { id: 'doubao-seedance-2-0-260128', name: 'Seedance 2.0', description: '方舟 · 旗舰画质与多模态参考', provider: 'ark', resolutions: ['720p', '1080p'], maxPromptLength: 20000, durations: [5, 10, 15], pricing: 'paid' },
+  { id: 'doubao-seedance-2-0-fast-260128', name: 'Seedance 2.0 Fast', description: '方舟 · 快速生成与动态表现', provider: 'ark', resolutions: ['720p'], maxPromptLength: 20000, durations: [5, 10, 15], pricing: 'paid' },
+  { id: 'doubao-seedance-2-0-mini-260615', name: 'Seedance 2.0 Mini', description: '方舟 · 轻量高性价比', provider: 'ark', resolutions: ['720p'], maxPromptLength: 20000, durations: [5, 10, 15], pricing: 'paid' },
+  { id: 'agnes-video-v2.0', name: 'Agnes Video V2.0', description: 'Agnes AI · 免费但限流', provider: 'agnes', resolutions: ['720p', '1080p'], maxPromptLength: 20000, durations: [5, 10, 15], pricing: 'free' },
+  { id: 'pollinations-veo', apiModel: 'veo', name: 'Veo 3.1 Fast', description: 'Pollinations · 付费 · 支持首尾帧', provider: 'pollinations', resolutions: ['720p'], maxPromptLength: 32000, supportsReferenceImage: true, durations: [4, 6, 8], pricing: 'paid' },
+  { id: 'pollinations-veo-1080p', apiModel: 'veo-1080p', name: 'Veo 3.1 Fast 1080p', description: 'Pollinations · 约 0.10 Pollen/秒', provider: 'pollinations', resolutions: ['1080p'], maxPromptLength: 32000, supportsReferenceImage: true, durations: [4, 6, 8], pricing: 'paid' },
+  { id: 'pollinations-seedance-2', apiModel: 'seedance-2.0', name: 'Seedance 2.0', description: 'Pollinations · 约 0.18 Pollen/秒', provider: 'pollinations', resolutions: ['720p', '1080p'], maxPromptLength: 32000, supportsReferenceImage: true, durations: [4, 8, 12, 15], pricing: 'paid' },
+  { id: 'pollinations-wan-fast', apiModel: 'wan-fast', name: 'Wan Fast', description: 'Pollinations · 约 0.01 Pollen/秒', provider: 'pollinations', resolutions: ['720p'], maxPromptLength: 32000, supportsReferenceImage: true, durations: [5, 10, 15], pricing: 'paid' },
+  { id: 'pollinations-wan-pro', apiModel: 'wan-pro', name: 'Wan Pro', description: 'Pollinations · 约 0.10 Pollen/秒', provider: 'pollinations', resolutions: ['720p', '1080p'], maxPromptLength: 32000, supportsReferenceImage: true, durations: [5, 10, 15], pricing: 'paid' },
+  { id: 'pollinations-grok-video-pro', apiModel: 'grok-video-pro', name: 'Grok Video Pro', description: 'Pollinations · 约 0.07 Pollen/秒', provider: 'pollinations', resolutions: ['720p'], maxPromptLength: 32000, supportsReferenceImage: true, durations: [5, 10], pricing: 'paid' },
 ]
 
 const configuredImageModel = import.meta.env.VITE_ARK_IMAGE_MODEL

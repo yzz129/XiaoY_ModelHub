@@ -176,6 +176,7 @@ async function durableJsonPost<T>(jobId: string, url: string, apiKey: string, pa
     if (job.status === 'completed' && job.result) return job.result
     if (job.status === 'failed') {
       if (job.statusCode === 401 || job.statusCode === 403) throw new Error('API Key 无效，或当前账号没有模型调用权限')
+      if (job.statusCode === 402) throw new Error(job.error ? `付费余额不足：${job.error}` : '付费余额不足，请充值后重试')
       if (job.statusCode === 429) throw new Error(job.error ? `请求频率超过服务商限制：${job.error}` : '请求频率超过服务商限制，请等待一分钟后重试')
       throw new Error(job.error ?? '远端生成任务失败')
     }
@@ -185,6 +186,29 @@ async function durableJsonPost<T>(jobId: string, url: string, apiKey: string, pa
     })
   }
   throw new Error('本地任务仍在运行，刷新页面后会自动继续查询')
+}
+
+async function beginDurableVideoJob(jobId: string, url: string, apiKey: string, signal?: AbortSignal) {
+  const response = await fetch('/__generation_jobs', {
+    method: 'POST',
+    signal,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: jobId, url, apiKey, responseType: 'video' }),
+  })
+  const result = await response.json().catch(() => ({})) as { error?: string }
+  if (!response.ok) throw new Error(result.error ? `无法创建可恢复视频任务：${result.error}` : '无法创建可恢复视频任务')
+}
+
+async function uploadPollinationsImage(image: { dataUrl: string; mimeType: string; name: string }, jobId: string, signal?: AbortSignal) {
+  const result = await durableJsonPost<{ url?: string }>(
+    jobId,
+    `${config.pollinationsBaseUrl}/upload`,
+    config.pollinationsApiKey,
+    { data: image.dataUrl, contentType: image.mimeType, name: image.name },
+    signal,
+  )
+  if (!result.url) throw new Error('Pollinations 未返回参考图上传地址')
+  return result.url
 }
 
 export async function generateImage(settings: GenerationSettings, sessionId: string, signal?: AbortSignal, generationJobId: string = crypto.randomUUID()): Promise<GeneratedAsset[]> {
@@ -288,7 +312,31 @@ export async function createVideoTask(settings: GenerationSettings, sessionId: s
   const template = styleTemplates.find((item) => item.id === settings.styleId)
   const compiledPrompt = compilePrompt(settings, template)
   const videoOption = videoModels.find((model) => model.id === settings.videoModel) ?? videoModels[0]
-  const videoModel = videoOption.id ?? DEFAULT_VIDEO_MODEL
+  const videoModel = videoOption.apiModel ?? videoOption.id ?? DEFAULT_VIDEO_MODEL
+  if (videoOption.provider === 'pollinations') {
+    const sourceImages = [
+      ...(settings.firstFrame ? [{ image: settings.firstFrame, role: 'first' }] : []),
+      ...(settings.lastFrame ? [{ image: settings.lastFrame, role: 'last' }] : []),
+      ...(settings.referenceImages ?? []).slice(0, 2).map((image, index) => ({ image, role: `reference-${index}` })),
+    ].slice(0, 2)
+    const uploadedImages = await Promise.all(sourceImages.map(({ image, role }) =>
+      uploadPollinationsImage(image, `pollinations-upload-${requestId}-${role}`, signal),
+    ))
+    const dimensions: Record<string, [number, number]> = settings.resolution === '1080p'
+      ? { '1:1': [1080, 1080], '4:3': [1440, 1080], '3:4': [1080, 1440], '16:9': [1920, 1080], '9:16': [1080, 1920] }
+      : { '1:1': [720, 720], '4:3': [960, 720], '3:4': [720, 960], '16:9': [1280, 720], '9:16': [720, 1280] }
+    const [width, height] = dimensions[settings.ratio]
+    const url = new URL(`${config.pollinationsBaseUrl}/video/${encodeURIComponent(compiledPrompt)}`)
+    url.searchParams.set('model', videoModel)
+    url.searchParams.set('duration', String(settings.duration))
+    url.searchParams.set('width', String(width))
+    url.searchParams.set('height', String(height))
+    if (uploadedImages.length) url.searchParams.set('image', uploadedImages.join('|'))
+    if (['veo', 'veo-1080p', 'seedance-2.0', 'wan-pro'].includes(videoModel)) url.searchParams.set('audio', 'true')
+    const taskId = `pollinations-video-${requestId}`
+    await beginDurableVideoJob(taskId, url.toString(), config.pollinationsApiKey, signal)
+    return { taskId, provider: 'pollinations', compiledPrompt, settings: snapshot(settings), sessionId, createdAt: Date.now() }
+  }
   if (videoOption.provider === 'agnes') {
     const dimensions: Record<string, [number, number]> = settings.resolution === '1080p'
       ? { '1:1': [1080, 1080], '4:3': [1440, 1080], '3:4': [1080, 1440], '16:9': [1920, 1080], '9:16': [1080, 1920] }
@@ -335,6 +383,23 @@ export async function waitForVideo(task: PendingVideoTask, options: { signal?: A
   let attempt = 0
   let nextAgnesPollAt = Math.max(Date.now(), task.createdAt + AGNES_VIDEO_POLL_INTERVAL_MS)
   while (Date.now() - startedAt < 30 * 60 * 1000) {
+    if (task.provider === 'pollinations') {
+      const response = await fetch(`/__generation_jobs/${encodeURIComponent(task.taskId)}`, { signal: options.signal })
+      const job = await response.json().catch(() => ({})) as DurableJobResponse<{ url?: string; path?: string }>
+      if (!response.ok) throw new Error(job.error ?? '本地视频任务不存在，请重新提交')
+      options.onState(job.status === 'completed' ? '已完成' : job.status === 'failed' ? '失败' : 'Pollinations 正在生成')
+      if (job.status === 'completed' && job.result?.url) {
+        return { id: crypto.randomUUID(), taskId: task.taskId, kind: 'video' as const, url: job.result.url, outputPath: job.result.path, prompt: task.settings.prompt, compiledPrompt: task.compiledPrompt, createdAt: Date.now(), settings: task.settings, sessionId: task.sessionId }
+      }
+      if (job.status === 'failed') {
+        if (job.statusCode === 402) throw new Error(job.error ? `Pollinations 付费余额不足：${job.error}` : 'Pollinations 付费余额不足，请充值后重试')
+        if (job.statusCode === 429) throw new Error(job.error ? `Pollinations 请求频率受限：${job.error}` : 'Pollinations 请求频率受限，请稍后重试')
+        throw new Error(job.error ?? 'Pollinations 视频生成失败')
+      }
+      await wait(attempt < 10 ? 2000 : 5000, options.signal)
+      attempt += 1
+      continue
+    }
     if (task.provider === 'agnes' && nextAgnesPollAt > Date.now()) {
       options.onState('等待 Agnes 免费档查询窗口')
       await wait(nextAgnesPollAt - Date.now(), options.signal)
@@ -407,6 +472,7 @@ export async function waitForThreeD(task: PendingThreeDTask, options: { signal?:
 }
 
 export async function refreshAssetUrl(asset: GeneratedAsset, signal?: AbortSignal) {
+  if (asset.outputPath && asset.url.startsWith('/__generated_output/')) return asset.url
   if (!asset.taskId || asset.kind === 'image') throw new Error('这件作品没有可用于刷新链接的任务 ID')
   const agnesVideo = asset.kind === 'video' && asset.settings.videoModel?.startsWith('agnes-')
   const result = agnesVideo

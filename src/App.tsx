@@ -98,7 +98,7 @@ function App() {
   const sessionAssets = history.filter((asset) => sessionAssetIds.includes(asset.id))
   const visibleAssets = canvasView === 'session' ? sessionAssets : history
   const addAsyncResult = useCallback(async (result: GeneratedAsset) => {
-    const saved = await saveGeneratedAsset(result)
+    const saved = result.outputPath ? result : await saveGeneratedAsset(result)
     setHistory((current) => current.some((item) => item.taskId && item.taskId === saved.taskId) ? current : [saved, ...current])
     if (saved.sessionId === sessionId) setSessionAssetIds((current) => [saved.id, ...current])
   }, [sessionId])
@@ -146,7 +146,7 @@ function App() {
     const promptLimit = kind === 'image' ? imageModel.maxPromptLength : kind === 'video' ? videoModel.maxPromptLength : 1200
     const prompt = kind === '3d' ? '' : settings.prompt.slice(0, promptLimit)
     if (settings.prompt.length > promptLimit) setNotice(`提示词已按目标模型上限截取为 ${promptLimit.toLocaleString()} 字符`)
-    patch({ kind, mode: kind === '3d' ? 'image-to-3d' : 'text', firstFrame: undefined, lastFrame: undefined, referenceImages: undefined, prompt, resolution: kind === 'image' ? '2K' : kind === 'video' ? (videoModel.resolutions.includes('1080p') ? '1080p' : '720p') : '2K', threeDModel: settings.threeDModel ?? 'doubao-seed3d-2-0-260328' })
+    patch({ kind, mode: kind === '3d' ? 'image-to-3d' : 'text', firstFrame: undefined, lastFrame: undefined, referenceImages: undefined, prompt, resolution: kind === 'image' ? '2K' : kind === 'video' ? (videoModel.resolutions.includes('1080p') ? '1080p' : '720p') : '2K', duration: kind === 'video' && !videoModel.durations?.includes(settings.duration) ? (videoModel.durations?.[0] ?? 5) : settings.duration, threeDModel: settings.threeDModel ?? 'doubao-seed3d-2-0-260328' })
     setFrameError(undefined)
   }
 
@@ -170,6 +170,7 @@ function App() {
       videoModel,
       prompt: settings.prompt.slice(0, model.maxPromptLength),
       resolution: model.resolutions.includes(settings.resolution) ? settings.resolution : model.resolutions[0],
+      duration: model.durations?.includes(settings.duration) ? settings.duration : (model.durations?.[0] ?? settings.duration),
       ...(model.provider === 'agnes' ? { mode: 'text' as const, firstFrame: undefined, lastFrame: undefined, referenceImages: undefined } : {}),
     })
     if (model.provider === 'agnes' && settings.mode !== 'text') setNotice('Agnes AI 已切换为文生视频；当前本地上传素材不是公开 URL')
@@ -367,7 +368,7 @@ function App() {
               {settings.kind !== '3d' && <section className="control-section"><div className="section-label"><span>视觉主题</span><small>STYLE</small></div><div className="template-preview" style={{ background: template.gradient }}><div><small>{template.eyebrow}</small><strong>{template.name}</strong><p>{template.description}</p></div><span>已应用</span></div><div className="template-row">{styleTemplates.map((item) => <button type="button" key={item.id} aria-pressed={settings.styleId === item.id} className={settings.styleId === item.id ? 'active' : ''} onClick={() => patch({ styleId: item.id })} style={{ background: item.gradient }}><span>{item.name}</span></button>)}</div></section>}
               {settings.kind !== '3d' && <section className="control-section"><div className="section-label"><span>画面比例</span><small>{settings.ratio}</small></div><div className="ratio-row">{(['1:1', '4:3', '3:4', '16:9', '9:16'] as AspectRatio[]).map((ratio) => <button type="button" key={ratio} aria-pressed={settings.ratio === ratio} className={settings.ratio === ratio ? 'active' : ''} onClick={() => patch({ ratio })}><i style={{ aspectRatio: ratio.replace(':', '/') }} />{ratio}</button>)}</div></section>}
               {settings.kind !== '3d' && <section className="control-section compact"><div className="section-label"><span>输出清晰度</span><small>QUALITY</small></div><div className="chips-row">{activeGenerationModel!.resolutions.map((resolution) => <button type="button" aria-pressed={settings.resolution === resolution} className={settings.resolution === resolution ? 'active' : ''} key={resolution} onClick={() => patch({ resolution: resolution as Resolution })}>{resolution}</button>)}</div></section>}
-              {settings.kind === 'video' && <section className="control-section compact"><div className="section-label"><span>视频时长</span><small>DURATION</small></div><div className="chips-row">{[5, 10, 15].map((duration) => <button type="button" aria-pressed={settings.duration === duration} className={settings.duration === duration ? 'active' : ''} key={duration} onClick={() => patch({ duration })}>{duration} 秒</button>)}</div></section>}
+              {settings.kind === 'video' && <section className="control-section compact"><div className="section-label"><span>视频时长</span><small>DURATION</small></div><div className="chips-row">{(activeGenerationModel?.durations ?? [5, 10, 15]).map((duration) => <button type="button" aria-pressed={settings.duration === duration} className={settings.duration === duration ? 'active' : ''} key={duration} onClick={() => patch({ duration })}>{duration} 秒</button>)}</div></section>}
             </div>
             <div className="generate-wrap">{!activeHasApiKey && <button type="button" className="key-warning" onClick={() => setSettingsOpen(true)}><KeyRound /> 在 .env.local 中配置 {activeProviderName} API Key</button>}<button className="generate-button" type="button" onClick={() => void submit()} disabled={settings.kind === 'image' && imageLoading} aria-busy={settings.kind === 'image' && imageLoading}><span><Sparkles />{settings.kind === 'video' ? '加入视频队列' : settings.kind === '3d' ? '加入 3D 队列' : imageLoading ? '创作中…' : '生成图片'}</span><b>{settings.kind === 'image' ? 'IMAGE' : settings.kind === 'video' ? 'VIDEO' : '3D'}</b></button></div>
           </>}
