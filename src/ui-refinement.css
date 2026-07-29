@@ -1144,6 +1144,147 @@ dialog.model-center.marketplace:not([open]) {
   color: #3e495d;
 }
 
+/* Larger, more readable typography. */
+.portal-sidebar {
+  width: 190px;
+}
+
+.portal-brand strong {
+  font-size: 16px;
+}
+
+.portal-nav-scroll section > small {
+  min-height: 32px;
+  font-size: 11px;
+}
+
+.portal-nav-item {
+  height: 40px;
+  grid-template-columns: 19px minmax(0, 1fr) auto;
+  font-size: 12px;
+}
+
+.portal-nav-item svg {
+  width: 16px;
+  height: 16px;
+}
+
+.portal-nav-item b {
+  min-width: 20px;
+  height: 19px;
+  font-size: 9px;
+}
+
+.portal-sidebar footer p {
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.marketplace-title h2 {
+  font-size: 16px;
+}
+
+.marketplace-search input {
+  font-size: 12px;
+}
+
+.model-center.marketplace .model-family-tabs::before,
+.model-center.marketplace .model-family-tabs button > span {
+  font-size: 11px;
+}
+
+.marketplace-layout {
+  grid-template-columns: 185px minmax(0, 1fr);
+}
+
+.filter-heading {
+  font-size: 12px;
+}
+
+.marketplace-filters legend {
+  font-size: 10px;
+}
+
+.marketplace-filters fieldset button {
+  min-height: 34px;
+  font-size: 11px;
+}
+
+.marketplace-results-head span {
+  font-size: 14px;
+}
+
+.marketplace-results-head strong,
+.marketplace-results-head p {
+  font-size: 10px;
+}
+
+.model-center.marketplace .catalog-card {
+  min-height: 238px;
+  padding: 14px;
+}
+
+.model-center.marketplace .catalog-card h3 {
+  font-size: 13px;
+}
+
+.model-center.marketplace .catalog-identity p {
+  font-size: 10px;
+}
+
+.model-center.marketplace .catalog-badges b {
+  font-size: 9px;
+}
+
+.model-center.marketplace .catalog-description {
+  min-height: 34px;
+  font-size: 10px;
+}
+
+.model-center.marketplace .catalog-card code {
+  padding: 7px 8px;
+  font-size: 9px;
+}
+
+.catalog-tags span,
+.catalog-quota p,
+.catalog-quota small {
+  font-size: 9px;
+}
+
+.model-center.marketplace .catalog-links button,
+.model-center.marketplace .catalog-links a {
+  height: 28px;
+  font-size: 9px;
+}
+
+.portal-theme .workspace-title span {
+  font-size: 15px;
+}
+
+.portal-theme .workspace-title small,
+.portal-theme .connection,
+.portal-theme .new-task {
+  font-size: 12px;
+}
+
+.portal-theme .section-label,
+.portal-theme .mode-tabs button {
+  font-size: 14px;
+}
+
+.portal-theme .model-choice strong {
+  font-size: 12px;
+}
+
+.portal-theme .model-choice span {
+  font-size: 11px;
+}
+
+.portal-theme .model-choice small {
+  font-size: 9px;
+}
+
 @media (max-width: 1500px) {
   .model-center.marketplace .catalog-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));

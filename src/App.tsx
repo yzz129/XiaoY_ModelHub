@@ -314,7 +314,6 @@ function App() {
       onStudio={openStudio}
       onHistory={() => { setPortalView('studio'); setCanvasView('history'); setMobilePanel(false) }}
       onSettings={() => setSettingsOpen(true)}
-      onUnavailable={(label) => setNotice(`${label} 正在接入，当前版本暂未开放`)}
     />
 
     {portalView === 'marketplace'

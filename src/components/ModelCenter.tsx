@@ -138,7 +138,7 @@ export function ModelCenter({ open = false, embedded = false, initialFamily = 'l
           />
         </div>
         {embedded
-          ? <div className="marketplace-account"><span>本地工作区已连接</span><b>MS</b></div>
+          ? <div className="marketplace-account"><span>小Y中转站已连接</span><b>Y</b></div>
           : <button type="button" className="marketplace-close" aria-label="关闭模型广场" onClick={onClose}><X /></button>}
       </header>
 
