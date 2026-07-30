@@ -32,6 +32,7 @@ import {
   type ChatAttachment,
   type ChatMessage,
 } from '../lib/creative'
+import { logActivity } from '../lib/account'
 import { MarkdownContent } from './MarkdownContent'
 
 interface LanguageStudioProps {
@@ -283,8 +284,35 @@ export function LanguageStudio({ models: availableModels = languageModels, selec
     try {
       const answer = await sendLanguageMessage(model, nextMessages, systemPrompt, temperature, controller.signal)
       updateMessages([...nextMessages, { id: crypto.randomUUID(), role: 'assistant', content: answer, createdAt: Date.now() }])
+      void logActivity({
+        clientEventId: `chat:${userMessage.id}`,
+        type: 'chat',
+        modelId: model.apiModel,
+        provider: model.provider,
+        inputText: userMessage.content,
+        outputText: answer,
+        metadata: {
+          conversationId: activeConversation.id,
+          conversationTitle: activeConversation.title,
+          systemPrompt,
+          temperature,
+          attachments: attachments.map(({ id, name, type, size }) => ({ id, name, type, size })),
+        },
+        createdAt: userMessage.createdAt,
+      })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '语言模型请求失败')
+      void logActivity({
+        clientEventId: `chat:${userMessage.id}`,
+        type: 'chat',
+        modelId: model.apiModel,
+        provider: model.provider,
+        inputText: userMessage.content,
+        outputText: caught instanceof Error ? caught.message : '语言模型请求失败',
+        metadata: { conversationId: activeConversation.id },
+        status: 'failed',
+        createdAt: userMessage.createdAt,
+      })
     } finally {
       setLoading(false)
       abortRef.current = undefined

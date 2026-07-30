@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 43129 --strictPort",
+    "dev:backend": "wrangler pages dev dist --port 8788",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

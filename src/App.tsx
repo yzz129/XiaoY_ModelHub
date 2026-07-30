@@ -19,6 +19,7 @@ import { getProviderName, hasApiKeyForSettings, refreshAssetUrl } from './lib/ar
 import { isProviderConfigured } from './lib/providerCredentials'
 import { clearHistory, loadHistory, loadPreferences, saveHistory, savePreferences } from './lib/storage'
 import { saveGeneratedAsset } from './lib/output'
+import { logActivity } from './lib/account'
 import { MAX_VIDEO_REFERENCE_IMAGES } from './lib/video'
 import { languageModels, voiceModels } from './lib/creative'
 import type { AspectRatio, CanvasView, GeneratedAsset, GenerationKind, GenerationMode, GenerationSettings, ImageModel, Resolution, SettingsSnapshot, ThreeDJob, ThreeDModel, VideoJob, VideoModel } from './types/generation'
@@ -110,6 +111,24 @@ function App() {
     const saved = result.outputPath ? result : await saveGeneratedAsset(result)
     setHistory((current) => current.some((item) => item.taskId && item.taskId === saved.taskId) ? current : [saved, ...current])
     if (saved.sessionId === sessionId) setSessionAssetIds((current) => [saved.id, ...current])
+    const restored = settingsFromSnapshot(saved.settings)
+    const generatedModel = getGenerationModel(restored)
+    void logActivity({
+      clientEventId: `asset:${saved.id}`,
+      type: saved.kind,
+      modelId: saved.settings.kind === 'image' ? saved.settings.imageModel : saved.settings.kind === 'video' ? saved.settings.videoModel : saved.settings.threeDModel,
+      provider: generatedModel?.provider ?? (saved.kind === '3d' ? 'ark' : ''),
+      inputText: saved.prompt,
+      outputText: saved.compiledPrompt,
+      mediaUrl: saved.url,
+      metadata: {
+        settings: saved.settings,
+        sessionId: saved.sessionId,
+        taskId: saved.taskId,
+        outputPath: saved.outputPath,
+      },
+      createdAt: saved.createdAt,
+    })
   }, [sessionId])
   const addAsyncImages = useCallback(async (results: GeneratedAsset[]) => {
     setHistory((current) => [...results, ...current.filter((item) => !results.some((result) => result.id === item.id))])
@@ -118,6 +137,20 @@ function App() {
       setSessionAssetIds((current) => [...currentSessionResults.map((item) => item.id), ...current.filter((id) => !currentSessionResults.some((item) => item.id === id))])
       setSelectedId(currentSessionResults[0].id)
       setCanvasView('session')
+    }
+    for (const saved of results) {
+      const generatedModel = getGenerationModel(settingsFromSnapshot(saved.settings))
+      void logActivity({
+        clientEventId: `asset:${saved.id}`,
+        type: 'image',
+        modelId: saved.settings.imageModel,
+        provider: generatedModel?.provider,
+        inputText: saved.prompt,
+        outputText: saved.compiledPrompt,
+        mediaUrl: saved.url,
+        metadata: { settings: saved.settings, sessionId: saved.sessionId, outputPath: saved.outputPath },
+        createdAt: saved.createdAt,
+      })
     }
   }, [sessionId])
   const imageQueue = useImageQueue({ onComplete: addAsyncImages, onNotice: setNotice, onError: setImageError })

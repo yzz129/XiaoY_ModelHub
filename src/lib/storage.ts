@@ -4,7 +4,6 @@ const HISTORY_KEY = 'muse-history-v2'
 const LEGACY_HISTORY_KEY = 'muse-history'
 const LEGACY_PENDING_KEY = 'muse-pending-video-v1'
 const PREFERENCES_KEY = 'muse-settings-v1'
-const MAX_HISTORY = 24
 export const DEFAULT_MAX_VIDEO_CONCURRENCY = 2
 export const DEFAULT_MAX_3D_CONCURRENCY = 2
 
@@ -26,11 +25,11 @@ export function loadHistory(): GeneratedAsset[] {
   try {
     const raw = localStorage.getItem(HISTORY_KEY) ?? localStorage.getItem(LEGACY_HISTORY_KEY) ?? '[]'
     const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.map(normalizeAsset).filter((item): item is GeneratedAsset => Boolean(item)).slice(0, MAX_HISTORY) : []
+    return Array.isArray(parsed) ? parsed.map(normalizeAsset).filter((item): item is GeneratedAsset => Boolean(item)) : []
   } catch { return [] }
 }
 
-export function saveHistory(assets: GeneratedAsset[]) { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(assets.slice(0, MAX_HISTORY))); return true } catch { return false } }
+export function saveHistory(assets: GeneratedAsset[]) { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(assets)); return true } catch { return false } }
 export function clearHistory() { localStorage.removeItem(HISTORY_KEY); localStorage.removeItem(LEGACY_HISTORY_KEY) }
 
 function clampConcurrency(value: unknown) {

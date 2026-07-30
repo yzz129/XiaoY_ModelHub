@@ -70,9 +70,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
   { id: 'ark', name: '火山方舟', docsUrl: 'https://www.volcengine.com/docs/82379', keyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey' },
 ]
 
-const enabledProviderIds = new Set(['agnes', 'openrouter'])
-
-export const providerDefinitions = allProviderDefinitions.filter((provider) => enabledProviderIds.has(provider.id))
+export const providerDefinitions = allProviderDefinitions
 
 export const providerDefinitionById = Object.fromEntries(
   providerDefinitions.map((provider) => [provider.id, provider]),
@@ -96,12 +94,107 @@ export function sortModelsByPricing<T extends { pricing: PricingTier }>(models: 
   return [...models].sort((left, right) => pricingPriority[left.pricing] - pricingPriority[right.pricing])
 }
 
-export const providerEnvironmentKeys: Record<string, string[]> = {
-  agnes: ['VITE_AGNES_API_KEY'],
-  openrouter: ['VITE_OPENROUTER_API_KEY'],
+function providerCatalogModel(
+  providerId: 'alibaba' | 'ark',
+  apiModel: string,
+  name: string,
+  category: ModelCategory,
+  pricing: PricingTier = 'variable',
+  description = '',
+): CatalogModel {
+  const provider = providerDefinitionById[providerId]
+  return {
+    id: `${providerId}-${apiModel.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+    apiModel,
+    name,
+    provider: provider.name,
+    providerId,
+    category,
+    pricing,
+    quota: pricing === 'free-quota'
+      ? '新用户或活动免费额度以服务商控制台实时信息为准'
+      : '按模型和实际调用量计费，价格以服务商控制台为准',
+    quotaLookup: providerId === 'alibaba' ? '百炼模型广场与费用中心查看' : '方舟模型广场与费用中心查看',
+    integration: category === 'chat' ? 'ready' : 'catalog',
+    description: description || `${provider.name} 官方模型目录`,
+    docsUrl: provider.docsUrl,
+    keyUrl: provider.keyUrl,
+  }
 }
 
+// `/models` generally lists only models visible to the current account. Keep a broad
+// official-catalog fallback so the marketplace is useful before a key is configured.
+const alibabaCatalogModels: CatalogModel[] = [
+  providerCatalogModel('alibaba', 'qwen3.8-max-preview', 'Qwen 3.8 Max Preview', 'chat', 'paid', 'Token Plan 旗舰预览模型'),
+  providerCatalogModel('alibaba', 'qwen3.7-max', 'Qwen 3.7 Max', 'chat', 'variable', '千问旗舰推理与通用模型'),
+  providerCatalogModel('alibaba', 'qwen3.7-plus', 'Qwen 3.7 Plus', 'chat', 'variable', '高性能通用语言模型'),
+  providerCatalogModel('alibaba', 'qwen3.7-flash', 'Qwen 3.7 Flash', 'chat', 'variable', '低延迟通用语言模型'),
+  providerCatalogModel('alibaba', 'qwen3.5-plus', 'Qwen 3.5 Plus', 'chat', 'variable'),
+  providerCatalogModel('alibaba', 'qwen3.5-flash', 'Qwen 3.5 Flash', 'chat', 'variable'),
+  providerCatalogModel('alibaba', 'qwen3-max', 'Qwen 3 Max', 'chat', 'variable'),
+  providerCatalogModel('alibaba', 'qwen3-plus', 'Qwen 3 Plus', 'chat', 'free-quota'),
+  providerCatalogModel('alibaba', 'qwen3-turbo', 'Qwen 3 Turbo', 'chat', 'free-quota'),
+  providerCatalogModel('alibaba', 'qwen3-coder-plus', 'Qwen 3 Coder Plus', 'chat', 'variable', '代码生成与智能体开发'),
+  providerCatalogModel('alibaba', 'qwen3-coder-flash', 'Qwen 3 Coder Flash', 'chat', 'variable', '低延迟代码模型'),
+  providerCatalogModel('alibaba', 'qwen3.5-omni-plus', 'Qwen 3.5 Omni Plus', 'chat', 'variable', '文本、图像、音频和视频全模态理解'),
+  providerCatalogModel('alibaba', 'qwen-vl-max', 'Qwen VL Max', 'chat', 'variable', '视觉理解旗舰模型'),
+  providerCatalogModel('alibaba', 'qwen-vl-plus', 'Qwen VL Plus', 'chat', 'free-quota', '视觉理解通用模型'),
+  providerCatalogModel('alibaba', 'deepseek-v4-pro', 'DeepSeek V4 Pro', 'chat', 'variable'),
+  providerCatalogModel('alibaba', 'deepseek-v4-flash', 'DeepSeek V4 Flash', 'chat', 'variable'),
+  providerCatalogModel('alibaba', 'kimi/kimi-k3', 'Kimi K3', 'chat', 'variable'),
+  providerCatalogModel('alibaba', 'glm-5.2', 'GLM 5.2', 'chat', 'variable'),
+  providerCatalogModel('alibaba', 'MiniMax/MiniMax-M3', 'MiniMax M3', 'chat', 'variable'),
+  providerCatalogModel('alibaba', 'xiaomi/mimo-v2.5-pro', 'MiMo V2.5 Pro', 'chat', 'variable'),
+  providerCatalogModel('alibaba', 'qwen-image-3.0-pro', 'Qwen Image 3.0 Pro', 'image', 'paid', '高质量图像生成与编辑'),
+  providerCatalogModel('alibaba', 'wan2.7-image-pro', 'Wan 2.7 Image Pro', 'image', 'paid', '通义万相高质量图像生成'),
+  providerCatalogModel('alibaba', 'wan2.6-image', 'Wan 2.6 Image', 'image', 'variable'),
+  providerCatalogModel('alibaba', 'wan2.6-i2v', 'Wan 2.6 Image to Video', 'video', 'variable'),
+  providerCatalogModel('alibaba', 'wan2.6-t2v', 'Wan 2.6 Text to Video', 'video', 'variable'),
+  providerCatalogModel('alibaba', 'happyhorse-1.1-t2v', 'HappyHorse 1.1 T2V', 'video', 'variable'),
+  providerCatalogModel('alibaba', 'qwen-audio-3.0-tts-plus', 'Qwen Audio 3.0 TTS Plus', 'audio', 'variable', '多语种语音合成'),
+  providerCatalogModel('alibaba', 'qwen-audio-3.0-realtime-plus', 'Qwen Audio 3.0 Realtime Plus', 'audio', 'variable', '实时端到端语音对话'),
+  providerCatalogModel('alibaba', 'MiniMax/speech-2.8-hd', 'MiniMax Speech 2.8 HD', 'audio', 'variable'),
+  providerCatalogModel('alibaba', 'fun-asr', 'Fun-ASR', 'audio', 'free-quota', '录音文件语音识别'),
+  providerCatalogModel('alibaba', 'fun-asr-realtime', 'Fun-ASR Realtime', 'audio', 'free-quota', '实时语音识别'),
+  providerCatalogModel('alibaba', 'fun-music-v1', 'Fun Music V1', 'audio', 'variable', '文本与歌词生成音乐'),
+  providerCatalogModel('alibaba', 'text-embedding-v4', 'Text Embedding V4', 'embedding', 'free-quota'),
+  providerCatalogModel('alibaba', 'text-embedding-v3', 'Text Embedding V3', 'embedding', 'free-quota'),
+  providerCatalogModel('alibaba', 'qwen2.5-vl-embedding', 'Qwen 2.5 VL Embedding', 'embedding', 'variable', '文本、图片与视频多模态向量化'),
+  providerCatalogModel('alibaba', 'tongyi-embedding-vision-plus', 'Tongyi Vision Embedding Plus', 'embedding', 'variable'),
+  providerCatalogModel('alibaba', 'gte-rerank-v2', 'GTE Rerank V2', 'reranker', 'free-quota'),
+  providerCatalogModel('alibaba', 'Tripo/Tripo-H3.1', 'Tripo H3.1', '3d', 'paid', '文生与图生 3D 模型'),
+  providerCatalogModel('alibaba', 'Tripo/Tripo-P1.0', 'Tripo P1.0', '3d', 'paid', '文生与图生 3D 模型'),
+]
+
+const arkCatalogModels: CatalogModel[] = [
+  providerCatalogModel('ark', 'doubao-seed-2-0-pro-260215', 'Doubao Seed 2.0 Pro', 'chat', 'variable', '复杂推理与多模态旗舰模型'),
+  providerCatalogModel('ark', 'doubao-seed-2-0-lite-260215', 'Doubao Seed 2.0 Lite', 'chat', 'free-quota', '低延迟多模态通用模型'),
+  providerCatalogModel('ark', 'doubao-seed-2-0-code', 'Doubao Seed 2.0 Code', 'chat', 'variable', '代码生成与前端视觉理解'),
+  providerCatalogModel('ark', 'doubao-seed-1-8-251228', 'Doubao Seed 1.8', 'chat', 'variable'),
+  providerCatalogModel('ark', 'doubao-seed-1-6-250615', 'Doubao Seed 1.6', 'chat', 'variable'),
+  providerCatalogModel('ark', 'doubao-seed-1-6-thinking-250715', 'Doubao Seed 1.6 Thinking', 'chat', 'variable', '深度思考模型'),
+  providerCatalogModel('ark', 'doubao-seed-1-6-flash-250715', 'Doubao Seed 1.6 Flash', 'chat', 'free-quota'),
+  providerCatalogModel('ark', 'doubao-1-5-pro-32k-250115', 'Doubao 1.5 Pro 32K', 'chat', 'variable'),
+  providerCatalogModel('ark', 'doubao-1-5-lite-32k-250115', 'Doubao 1.5 Lite 32K', 'chat', 'free-quota'),
+  providerCatalogModel('ark', 'doubao-1-5-thinking-pro-250415', 'Doubao 1.5 Thinking Pro', 'chat', 'variable'),
+  providerCatalogModel('ark', 'doubao-1-5-vision-pro-32k-250115', 'Doubao 1.5 Vision Pro', 'chat', 'variable', '图片与视频理解'),
+  providerCatalogModel('ark', 'kimi-k2-5', 'Kimi K2.5', 'chat', 'variable'),
+  providerCatalogModel('ark', 'deepseek-v3-2', 'DeepSeek V3.2', 'chat', 'variable'),
+  providerCatalogModel('ark', 'deepseek-r1-250528', 'DeepSeek R1', 'chat', 'variable'),
+  providerCatalogModel('ark', 'doubao-seedream-4-5-251128', 'Seedream 4.5', 'image', 'paid', '高质量图像生成与编辑'),
+  providerCatalogModel('ark', 'doubao-seedream-4-0-250828', 'Seedream 4.0', 'image', 'paid'),
+  providerCatalogModel('ark', 'doubao-seededit-3-0-i2i-250628', 'SeedEdit 3.0', 'image', 'paid', '图片编辑模型'),
+  providerCatalogModel('ark', 'doubao-seedance-1-5-pro-251215', 'Seedance 1.5 Pro', 'video', 'paid'),
+  providerCatalogModel('ark', 'doubao-seedance-1-0-pro-250528', 'Seedance 1.0 Pro', 'video', 'paid'),
+  providerCatalogModel('ark', 'doubao-seedance-1-0-pro-fast-251015', 'Seedance 1.0 Pro Fast', 'video', 'paid'),
+  providerCatalogModel('ark', 'doubao-embedding-text-240515', 'Doubao Text Embedding', 'embedding', 'variable'),
+  providerCatalogModel('ark', 'doubao-embedding-vision-250615', 'Doubao Vision Embedding', 'embedding', 'variable', '图文多模态向量化'),
+  providerCatalogModel('ark', 'doubao-embedding-large-text-250515', 'Doubao Large Text Embedding', 'embedding', 'variable'),
+]
+
 export const catalogModels: CatalogModel[] = sortModelsByPricing<CatalogModel>([
+  ...alibabaCatalogModels,
+  ...arkCatalogModels,
   { id: 'ark-doubao-seed-lite', apiModel: 'doubao-seed-1-6-lite-250615', name: 'Doubao Seed 1.6 Lite', provider: '火山方舟', providerId: 'ark', category: 'chat', pricing: 'free-quota', quota: '注册并开通方舟后可领取体验额度；到账金额和适用模型以控制台为准', quotaLookup: '方舟控制台的免费体验与费用中心查看', integration: 'ready', description: '国内低延迟、OpenAI 兼容的豆包轻量语言模型', docsUrl: 'https://www.volcengine.com/docs/82379/1494384', keyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey' },
   { id: 'alibaba-qwen-plus', apiModel: 'qwen-plus', name: 'Qwen Plus', provider: '阿里云百炼', providerId: 'alibaba', category: 'chat', pricing: 'free-quota', quota: '北京地域新人按模型获赠免费额度，通常 100 万 Token、有效期 90 天', quotaLookup: '百炼免费额度页可查余量并开启“用完即停”', integration: 'ready', description: '通义千问主力语言模型，支持 OpenAI 兼容调用', docsUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference', keyUrl: 'https://bailian.console.aliyun.com/?tab=model#/api-key' },
   { id: 'baidu-ernie-45-turbo', apiModel: 'ernie-4.5-turbo-128k', name: 'ERNIE 4.5 Turbo 128K', provider: '百度智能云千帆', providerId: 'baidu', category: 'chat', pricing: 'free-quota', quota: '新客开通可获赠调用额度，官方当前标注最高 100 万+ Token', quotaLookup: '千帆控制台资源额度与费用中心查看', integration: 'ready', description: '文心大模型长上下文版本，支持 OpenAI 兼容调用', docsUrl: 'https://cloud.baidu.com/doc/qianfan-api/s/3m7of64lb', keyUrl: 'https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application' },
@@ -177,4 +270,4 @@ export const catalogModels: CatalogModel[] = sortModelsByPricing<CatalogModel>([
   { id: 'cohere-rerank', apiModel: 'rerank-v3.5', name: 'Rerank 3.5', provider: 'Cohere', providerId: 'cohere', category: 'reranker', pricing: 'free-quota', quota: 'Trial Key 免费，Rerank 通常 10 RPM', quotaLookup: 'Cohere Dashboard 查看', integration: 'catalog', description: '语义搜索结果重排', docsUrl: 'https://docs.cohere.com/', keyUrl: 'https://dashboard.cohere.com/api-keys' },
 
   { id: 'seed3d', apiModel: 'doubao-seed3d-2-0-260328', name: 'Seed3D 2.0', provider: '火山方舟', providerId: 'ark', category: '3d', pricing: 'paid', quota: '按量计费', quotaLookup: '方舟费用中心查看', integration: 'ready', description: '图片转 3D', docsUrl: 'https://www.volcengine.com/docs/82379', keyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey' },
-]).filter((model) => enabledProviderIds.has(model.providerId) && model.pricing === 'free')
+])

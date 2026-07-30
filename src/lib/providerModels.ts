@@ -7,7 +7,7 @@ import {
   type ModelCategory,
   type PricingTier,
 } from '../data/providerCatalog'
-import { getProviderCredentials, isProviderConfigured } from './providerCredentials'
+import { isProviderConfigured } from './providerCredentials'
 
 interface ProviderModelsResponse {
   provider?: string
@@ -31,7 +31,7 @@ export interface ProviderCatalogSync {
   fromCache?: boolean
 }
 
-const cacheKey = 'xiaoy-provider-model-catalog-v3'
+const cacheKey = 'xiaoy-provider-model-catalog-v5'
 const cacheTtlMs = 30 * 60 * 1000
 let pendingSync: Promise<ProviderCatalogSync> | undefined
 
@@ -80,11 +80,10 @@ function toCatalogModel(providerId: string, model: NonNullable<ProviderModelsRes
 }
 
 async function syncOneProvider(providerId: string) {
-  const credentials = getProviderCredentials(providerId)
   const response = await fetch('/__provider_models', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider: providerId, ...credentials }),
+    body: JSON.stringify({ provider: providerId }),
   })
   const payload = await response.json().catch(() => ({})) as ProviderModelsResponse
   if (!response.ok) throw new Error(payload.error || `模型目录同步失败（${response.status}）`)

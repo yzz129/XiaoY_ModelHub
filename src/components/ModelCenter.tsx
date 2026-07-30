@@ -19,7 +19,6 @@ import {
   categoryLabels,
   pricingLabels,
   providerDefinitions,
-  providerEnvironmentKeys,
   type CatalogModel,
   type PricingTier,
 } from '../data/providerCatalog'
@@ -227,6 +226,25 @@ export function ModelCenter({
             ))}
           </fieldset>
 
+          <label className="mobile-provider-filter">
+            <span>服务商</span>
+            <select
+              aria-label="按服务商筛选模型"
+              value={provider}
+              onChange={(event) => {
+                setProvider(event.target.value)
+                setDisplayLimit(72)
+              }}
+            >
+              <option value="all">全部平台（{availableProviders.length}）</option>
+              {availableProviders.map((item) => (
+                <option value={item.name} key={item.id}>
+                  {item.name}（{item.count}）
+                </option>
+              ))}
+            </select>
+          </label>
+
           <fieldset>
             <legend>服务平台</legend>
             <button type="button" className={provider === 'all' ? 'active' : ''} onClick={() => { setProvider('all'); setDisplayLimit(72) }}>
@@ -313,7 +331,7 @@ export function ModelCenter({
                   <div className="catalog-tags">
                     <span>{categoryLabels[model.category]}</span>
                     <span className={configured ? 'configured' : ''}>
-                      {configured ? 'Key 已配置' : `需 ${providerEnvironmentKeys[model.providerId]?.join(' + ') ?? 'API Key'}`}
+                      {configured ? '后端 Key 已配置' : '需在账号中配置 API Key'}
                     </span>
                   </div>
 

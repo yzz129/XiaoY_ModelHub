@@ -1,0 +1,13 @@
+{
+  "name": "xiaoy-modelhub",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-07-30",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "xiaoy-modelhub-db",
+      "database_id": "7b8ba47a-08e4-4824-b08f-43935b0f654a",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

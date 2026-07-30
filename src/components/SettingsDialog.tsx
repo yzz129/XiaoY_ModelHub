@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Eye, EyeOff, KeyRound, Save, Trash2, X } from 'lucide-react'
 import { imageModels, videoModels } from '../data/models'
-import { catalogModels, providerDefinitions, providerEnvironmentKeys } from '../data/providerCatalog'
+import { catalogModels, providerDefinitions } from '../data/providerCatalog'
+import { deleteAccountCredential, getAccountCredentials, saveAccountCredential } from '../lib/account'
 import {
+  applyProviderConfigurationStatus,
   clearProviderCatalogCache,
-  clearProviderCredentials,
   getProviderCredentialFields,
-  getSavedProviderCredentials,
   isProviderConfigured,
-  saveProviderCredentials,
   type ProviderCredentials,
 } from '../lib/providerCredentials'
 
@@ -41,10 +40,10 @@ export function SettingsDialog({
   const [credentials, setCredentials] = useState<ProviderCredentials>({ apiKey: '' })
   const [showSecret, setShowSecret] = useState(false)
   const [savedMessage, setSavedMessage] = useState('')
+  const [saving, setSaving] = useState(false)
   const configuredCount = providerDefinitions.filter((provider) => isProviderConfigured(provider.id)).length
   const provider = providerDefinitions.find((item) => item.id === providerId) ?? providerDefinitions[0]
   const fields = getProviderCredentialFields(provider.id)
-  const environmentConfigured = isProviderConfigured(provider.id) && !getSavedProviderCredentials(provider.id).apiKey
 
   useEffect(() => {
     const dialog = ref.current
@@ -59,24 +58,45 @@ export function SettingsDialog({
 
   function selectProvider(nextProviderId: string) {
     setProviderId(nextProviderId)
-    setCredentials(getSavedProviderCredentials(nextProviderId))
+    setCredentials({ apiKey: '' })
     setSavedMessage('')
     setShowSecret(false)
   }
 
-  function save() {
-    saveProviderCredentials(providerId, credentials)
-    clearProviderCatalogCache()
-    setSavedMessage(isProviderConfigured(providerId) ? `${provider.name} API Key 已保存在当前浏览器` : '已清除本地覆盖，将继续使用环境变量配置')
-    onCredentialsChange?.(providerId)
+  async function save() {
+    setSaving(true)
+    setSavedMessage('')
+    try {
+      await saveAccountCredential(providerId, credentials)
+      const status = await getAccountCredentials()
+      applyProviderConfigurationStatus(status.configuredProviders)
+      clearProviderCatalogCache()
+      setCredentials({ apiKey: '' })
+      setSavedMessage(`${provider.name} API Key 已加密保存到后端，浏览器未保留副本`)
+      onCredentialsChange?.(providerId)
+    } catch (error) {
+      setSavedMessage(error instanceof Error ? error.message : 'API Key 保存失败')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  function clear() {
-    clearProviderCredentials(providerId)
-    clearProviderCatalogCache()
-    setCredentials({ apiKey: '' })
-    setSavedMessage(`已清除 ${provider.name} 的浏览器本地凭据`)
-    onCredentialsChange?.(providerId)
+  async function clear() {
+    setSaving(true)
+    setSavedMessage('')
+    try {
+      await deleteAccountCredential(providerId)
+      const status = await getAccountCredentials()
+      applyProviderConfigurationStatus(status.configuredProviders)
+      clearProviderCatalogCache()
+      setCredentials({ apiKey: '' })
+      setSavedMessage(`已清除 ${provider.name} 的个人凭据`)
+      onCredentialsChange?.(providerId)
+    } catch (error) {
+      setSavedMessage(error instanceof Error ? error.message : 'API Key 清除失败')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -101,12 +121,12 @@ export function SettingsDialog({
           </label>
           {fields.map((field) => (
             <label className="credential-field" key={field.key}>
-              <span>{field.label}<small>{providerEnvironmentKeys[provider.id]?.[field.key === 'accountId' ? 1 : 0]}</small></span>
+              <span>{field.label}<small>服务端加密保存</small></span>
               <div>
                 <input
                   type={field.secret && !showSecret ? 'password' : 'text'}
                   value={credentials[field.key] ?? ''}
-                  placeholder={environmentConfigured ? '已由环境变量配置；填写可在本浏览器覆盖' : field.placeholder}
+                  placeholder={isProviderConfigured(provider.id) ? '已在后端配置；输入新值可覆盖' : field.placeholder}
                   autoComplete="off"
                   onChange={(event) => setCredentials((current) => ({ ...current, [field.key]: event.target.value }))}
                 />
@@ -115,8 +135,8 @@ export function SettingsDialog({
             </label>
           ))}
           <div className="credential-actions">
-            <button type="button" className="credential-save" onClick={save}><Save />保存 Key</button>
-            <button type="button" onClick={clear}><Trash2 />清除本地 Key</button>
+            <button type="button" className="credential-save" disabled={saving || !credentials.apiKey.trim()} onClick={() => void save()}><Save />{saving ? '保存中…' : '保存到后端'}</button>
+            <button type="button" disabled={saving} onClick={() => void clear()}><Trash2 />清除个人 Key</button>
             <a href={provider.keyUrl} target="_blank" rel="noreferrer">注册 / 申请 Key</a>
           </div>
           {savedMessage && <p className="credential-message" role="status">{savedMessage}</p>}
@@ -125,8 +145,8 @@ export function SettingsDialog({
         <dl className="model-list"><div><dt>语言模型</dt><dd>{catalogModels.filter((model) => model.category === 'chat').length} 个免费模型</dd></div><div><dt>图片模型</dt><dd>{imageModels.length} 个 Agnes 免费模型</dd></div><div><dt>视频模型</dt><dd>{videoModels.length} 个 Agnes 免费模型</dd></div></dl>
         <div className="concurrency-row"><div><strong>视频最高并发</strong><p>同时提交并等待的视频任务数。</p></div><div className="concurrency-options" aria-label="视频最高并发数">{[1, 2, 3, 4].map((value) => <button type="button" key={value} aria-pressed={maxVideoConcurrency === value} className={maxVideoConcurrency === value ? 'active' : ''} onClick={() => onVideoConcurrencyChange(value)}>{value}</button>)}</div></div>
         <div className="concurrency-row"><div><strong>3D 最高并发</strong><p>同时提交并等待的图片转 3D 任务数。</p></div><div className="concurrency-options" aria-label="3D 最高并发数">{[1, 2, 3, 4].map((value) => <button type="button" key={value} aria-pressed={maxThreeDConcurrency === value} className={maxThreeDConcurrency === value ? 'active' : ''} onClick={() => onThreeDConcurrencyChange(value)}>{value}</button>)}</div></div>
-        <div className="warning-card"><AlertTriangle size={18} /><p><strong>仅适合个人本地使用</strong>浏览器保存的 Key 位于 localStorage，环境变量也会进入前端构建产物。公开部署时应改为服务端加密保存与代理调用。</p></div>
-        <div className="storage-row"><div><strong>本地创作历史</strong><p>最多保留 24 条记录，远端资源链接可能过期。</p></div><button type="button" onClick={() => { if (window.confirm('确定清空当前浏览器中的全部创作历史吗？')) onClearHistory() }}><Trash2 size={16} /> 清空历史</button></div>
+        <div className="warning-card"><AlertTriangle size={18} /><p><strong>凭据安全</strong>个人 Key 会在服务端加密后保存，并仅用于当前账号调用模型；管理员可在后台按需查看和管理。</p></div>
+        <div className="storage-row"><div><strong>本地创作历史</strong><p>生成记录不设数量上限，将一直保留到你手动清空。</p></div><button type="button" onClick={() => { if (window.confirm('确定清空当前浏览器中的全部创作历史吗？')) onClearHistory() }}><Trash2 size={16} /> 清空历史</button></div>
       </div>
       <button type="button" className="dialog-done" onClick={onClose}>完成</button>
     </dialog>

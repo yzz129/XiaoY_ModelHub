@@ -68,6 +68,7 @@ export interface GeneratedAsset {
 export interface PendingVideoTask {
   taskId: string
   videoId?: string
+  resultUrl?: string
   provider?: 'ark' | 'agnes' | 'pollinations'
   compiledPrompt: string
   settings: SettingsSnapshot

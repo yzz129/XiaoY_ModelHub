@@ -572,6 +572,10 @@ dialog.model-center.marketplace:not([open]) {
   color: #6d3bcc;
 }
 
+.mobile-provider-filter {
+  display: none;
+}
+
 .provider-unavailable {
   margin-top: 6px;
   border-top: 1px solid #ece8f4;
@@ -1622,11 +1626,11 @@ dialog.model-center.marketplace:not([open]) {
 
   .marketplace-filters {
     padding: 6px 9px;
-    display: flex;
+    display: grid;
     gap: 6px;
     border-right: 0;
     border-bottom: 1px solid #e5e8ef;
-    overflow-x: auto;
+    overflow: visible;
   }
 
   .filter-heading,
@@ -1638,6 +1642,12 @@ dialog.model-center.marketplace:not([open]) {
     margin: 0;
     display: flex;
     gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .marketplace-filters fieldset::-webkit-scrollbar {
+    display: none;
   }
 
   .marketplace-filters legend {
@@ -1650,8 +1660,38 @@ dialog.model-center.marketplace:not([open]) {
     flex: none;
   }
 
+  .mobile-provider-filter {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    color: #69758a;
+    font-size: 9px;
+    font-weight: 650;
+  }
+
+  .mobile-provider-filter select {
+    width: 100%;
+    min-width: 0;
+    height: 34px;
+    padding: 0 30px 0 11px;
+    border: 1px solid #d9ddea;
+    border-radius: 7px;
+    background: #fff;
+    color: #6940bc;
+    font: inherit;
+    font-weight: 650;
+    outline: none;
+  }
+
+  .mobile-provider-filter select:focus {
+    border-color: #9a6af0;
+    box-shadow: 0 0 0 3px rgba(133, 78, 229, 0.12);
+  }
+
   .marketplace-results {
-    min-height: calc(100dvh - 190px);
+    min-height: calc(100dvh - 232px);
   }
 
   .model-center.marketplace .catalog-grid {

@@ -1,5 +1,5 @@
 import { catalogModels, type CatalogModel } from '../data/providerCatalog'
-import { getProviderCredentials, isProviderConfigured } from './providerCredentials'
+import { isProviderConfigured } from './providerCredentials'
 
 export interface ChatMessage {
   id: string
@@ -62,7 +62,6 @@ export async function sendLanguageMessage(
   const data = await creativeRequest<{ content?: string }>({
     task: 'chat',
     provider: model.providerId,
-    apiKey: getProviderCredentials(model.providerId).apiKey,
     model: model.apiModel,
     systemPrompt,
     temperature,
@@ -121,7 +120,6 @@ export async function createSpeech(
   const data = await creativeRequest<{ audioBase64?: string; contentType?: string; characterCost?: string }>({
     task: 'tts',
     provider: model.providerId,
-    apiKey: getProviderCredentials(model.providerId).apiKey,
     model: model.apiModel,
     text,
     voiceId,
@@ -150,7 +148,6 @@ export async function cloneSpeechVoice(file: File, name: string, consent: boolea
   const data = await creativeRequest<{ voiceId?: string }>({
     task: 'clone_voice',
     provider: 'elevenlabs',
-    apiKey: getProviderCredentials('elevenlabs').apiKey,
     model: 'eleven_flash_v2_5',
     name: name.trim().slice(0, 80) || `参考声音 ${new Date().toLocaleDateString()}`,
     fileName: file.name,
@@ -168,7 +165,6 @@ export async function transcribeSpeech(model: CatalogModel, file: File, signal?:
   const data = await creativeRequest<{ text?: string }>({
     task: 'stt',
     provider: model.providerId,
-    apiKey: getProviderCredentials(model.providerId).apiKey,
     model: model.apiModel,
     fileName: file.name,
     mimeType: file.type || 'audio/mpeg',

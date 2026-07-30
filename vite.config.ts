@@ -1216,4 +1216,13 @@ const assetProxyPlugin: Plugin = {
 
 export default defineConfig({
   plugins: [react(), assetProxyPlugin],
+  server: {
+    proxy: {
+      '/api': {
+        target: process.env.XIAOY_BACKEND_ORIGIN ?? 'https://xiaoy-modelhub.pages.dev',
+        changeOrigin: true,
+        secure: true,
+      },
+    },
+  },
 })

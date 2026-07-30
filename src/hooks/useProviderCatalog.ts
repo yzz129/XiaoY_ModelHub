@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { catalogModels } from '../data/providerCatalog'
+import { catalogModels, type CatalogModel } from '../data/providerCatalog'
+import { getCustomCatalogModels } from '../lib/account'
 import {
   mergeProviderCatalog,
   syncProviderCatalog,
@@ -10,12 +11,18 @@ export function useProviderCatalog() {
   const [syncResult, setSyncResult] = useState<ProviderCatalogSync>()
   const [syncing, setSyncing] = useState(true)
   const [syncError, setSyncError] = useState('')
+  const [customModels, setCustomModels] = useState<CatalogModel[]>([])
 
   const refresh = useCallback(async () => {
     setSyncing(true)
     setSyncError('')
     try {
-      setSyncResult(await syncProviderCatalog(true))
+      const [providerResult, customResult] = await Promise.all([
+        syncProviderCatalog(true),
+        getCustomCatalogModels(),
+      ])
+      setSyncResult(providerResult)
+      setCustomModels(customResult.models)
     } catch (error) {
       setSyncError(error instanceof Error ? error.message : '无法同步服务商模型目录')
     } finally {
@@ -25,9 +32,15 @@ export function useProviderCatalog() {
 
   useEffect(() => {
     let active = true
-    syncProviderCatalog(false)
-      .then((result) => {
-        if (active) setSyncResult(result)
+    Promise.all([
+      syncProviderCatalog(false),
+      getCustomCatalogModels().catch(() => ({ models: [] })),
+    ])
+      .then(([result, customResult]) => {
+        if (active) {
+          setSyncResult(result)
+          setCustomModels(customResult.models)
+        }
       })
       .catch((error) => {
         if (active) setSyncError(error instanceof Error ? error.message : '无法同步服务商模型目录')
@@ -41,15 +54,14 @@ export function useProviderCatalog() {
   }, [])
 
   const models = useMemo(
-    () => mergeProviderCatalog(syncResult?.models ?? [], catalogModels)
-      .filter((model) => (model.providerId === 'agnes' || model.providerId === 'openrouter') && model.pricing === 'free'),
-    [syncResult],
+    () => mergeProviderCatalog(syncResult?.models ?? [], [...catalogModels, ...customModels]),
+    [customModels, syncResult],
   )
 
   const summary = syncing
     ? '正在同步全部服务商模型…'
     : syncResult
-      ? `已同步 ${syncResult.syncedProviders.length} 个平台、${syncResult.models.length} 个官方模型`
+      ? `已同步 ${syncResult.syncedProviders.length} 个平台、${syncResult.models.length} 个官方模型${customModels.length ? `，含 ${customModels.length} 个后台模型` : ''}`
       : syncError || '使用内置模型目录'
 
   const detail = syncResult

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AudioLines, Check, ChevronDown, Download, FileAudio, KeyRound, Mic2, ShieldCheck, SlidersHorizontal, Square, Upload, WandSparkles } from 'lucide-react'
 import { pricingLabels, type CatalogModel } from '../data/providerCatalog'
 import { cloneSpeechVoice, createSpeech, hasCreativeProviderKey, isTextToSpeechModel, speechVoices, transcribeSpeech, voiceModels, type SpeechVoice, type VoiceSettings } from '../lib/creative'
+import { logActivity } from '../lib/account'
 
 interface VoiceStudioProps {
   models?: CatalogModel[]
@@ -64,8 +65,27 @@ export function VoiceStudio({ models: availableModels = voiceModels, selectedMod
       if (isTts) {
         const result = await createSpeech(model, text.trim(), voiceId, supportsVoiceControls ? voiceSettings : undefined, controller.signal)
         setAudioUrl(result.url)
+        void logActivity({
+          clientEventId: `audio:${crypto.randomUUID()}`,
+          type: 'audio',
+          modelId: model.apiModel,
+          provider: model.provider,
+          inputText: text.trim(),
+          mediaUrl: result.url,
+          metadata: { voiceId, voiceSettings: supportsVoiceControls ? voiceSettings : undefined },
+        })
       } else if (audioFile) {
-        setTranscript(await transcribeSpeech(model, audioFile, controller.signal))
+        const result = await transcribeSpeech(model, audioFile, controller.signal)
+        setTranscript(result)
+        void logActivity({
+          clientEventId: `transcription:${crypto.randomUUID()}`,
+          type: 'transcription',
+          modelId: model.apiModel,
+          provider: model.provider,
+          inputText: audioFile.name,
+          outputText: result,
+          metadata: { fileName: audioFile.name, fileType: audioFile.type, fileSize: audioFile.size },
+        })
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '语音任务失败')

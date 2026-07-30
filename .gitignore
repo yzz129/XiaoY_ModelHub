@@ -5,6 +5,8 @@ dist
 .DS_Store
 frontend.out.log
 frontend.err.log
+vite*.log
+.wrangler/
 output/images/*
 output/videos/*
 output/models/*
