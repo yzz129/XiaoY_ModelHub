@@ -1,4 +1,5 @@
 import type { ImageModel, Resolution, VideoModel } from '../types/generation'
+import { sortModelsByPricing } from './providerCatalog'
 
 export interface GenerationModelOption<T extends ImageModel | VideoModel> {
   id: T
@@ -13,7 +14,7 @@ export interface GenerationModelOption<T extends ImageModel | VideoModel> {
   pricing: 'free' | 'free-quota' | 'paid' | 'variable'
 }
 
-export const imageModels: GenerationModelOption<ImageModel>[] = [
+export const imageModels: GenerationModelOption<ImageModel>[] = sortModelsByPricing<GenerationModelOption<ImageModel>>([
   { id: 'doubao-seedream-5-0-pro-260628', name: 'Seedream 5.0 Pro', description: '方舟 · 旗舰单图与精准创作', provider: 'ark', resolutions: ['1K', '2K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'paid' },
   { id: 'doubao-seedream-5-0-260128', name: 'Seedream 5.0 Lite', description: '方舟 · 高性价比通用生图', provider: 'ark', resolutions: ['2K', '3K'], maxPromptLength: 600, supportsReferenceImage: true, pricing: 'paid' },
   { id: 'doubao-seedream-4-5-251128', name: 'Seedream 4.5', description: '方舟 · 高质量与文字表现', provider: 'ark', resolutions: ['2K', '4K'], maxPromptLength: 600, supportsReferenceImage: true, pricing: 'paid' },
@@ -37,9 +38,9 @@ export const imageModels: GenerationModelOption<ImageModel>[] = [
   { id: 'pollinations-ideogram-v4-turbo', apiModel: 'ideogram-v4-turbo', name: 'Ideogram V4 Turbo', description: 'Pollinations · 约 0.03 Pollen/张', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, pricing: 'paid' },
   { id: 'pollinations-wan-image-pro', apiModel: 'wan-image-pro', name: 'Wan Image Pro', description: 'Pollinations · 约 0.03 Pollen/张', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'paid' },
   { id: 'pollinations-grok-imagine-pro', apiModel: 'grok-imagine-pro', name: 'Grok Imagine Pro', description: 'Pollinations · 付费高质量生图', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'paid' },
-]
+]).filter((model) => model.provider === 'agnes' && model.pricing === 'free')
 
-export const videoModels: GenerationModelOption<VideoModel>[] = [
+export const videoModels: GenerationModelOption<VideoModel>[] = sortModelsByPricing<GenerationModelOption<VideoModel>>([
   { id: 'doubao-seedance-2-0-260128', name: 'Seedance 2.0', description: '方舟 · 旗舰画质与多模态参考', provider: 'ark', resolutions: ['720p', '1080p'], maxPromptLength: 20000, durations: [5, 10, 15], pricing: 'paid' },
   { id: 'doubao-seedance-2-0-fast-260128', name: 'Seedance 2.0 Fast', description: '方舟 · 快速生成与动态表现', provider: 'ark', resolutions: ['720p'], maxPromptLength: 20000, durations: [5, 10, 15], pricing: 'paid' },
   { id: 'doubao-seedance-2-0-mini-260615', name: 'Seedance 2.0 Mini', description: '方舟 · 轻量高性价比', provider: 'ark', resolutions: ['720p'], maxPromptLength: 20000, durations: [5, 10, 15], pricing: 'paid' },
@@ -50,7 +51,7 @@ export const videoModels: GenerationModelOption<VideoModel>[] = [
   { id: 'pollinations-wan-fast', apiModel: 'wan-fast', name: 'Wan Fast', description: 'Pollinations · 约 0.01 Pollen/秒', provider: 'pollinations', resolutions: ['720p'], maxPromptLength: 32000, supportsReferenceImage: true, durations: [5, 10, 15], pricing: 'paid' },
   { id: 'pollinations-wan-pro', apiModel: 'wan-pro', name: 'Wan Pro', description: 'Pollinations · 约 0.10 Pollen/秒', provider: 'pollinations', resolutions: ['720p', '1080p'], maxPromptLength: 32000, supportsReferenceImage: true, durations: [5, 10, 15], pricing: 'paid' },
   { id: 'pollinations-grok-video-pro', apiModel: 'grok-video-pro', name: 'Grok Video Pro', description: 'Pollinations · 约 0.07 Pollen/秒', provider: 'pollinations', resolutions: ['720p'], maxPromptLength: 32000, supportsReferenceImage: true, durations: [5, 10], pricing: 'paid' },
-]
+]).filter((model) => model.provider === 'agnes' && model.pricing === 'free')
 
 const configuredImageModel = import.meta.env.VITE_ARK_IMAGE_MODEL
 const configuredVideoModel = import.meta.env.VITE_ARK_VIDEO_MODEL

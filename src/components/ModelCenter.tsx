@@ -17,13 +17,14 @@ import {
 import {
   catalogModels,
   categoryLabels,
-  configuredProviders,
   pricingLabels,
+  providerDefinitions,
   providerEnvironmentKeys,
   type CatalogModel,
   type PricingTier,
 } from '../data/providerCatalog'
 import { canQueryQuota, queryProviderQuota, type ProviderQuota } from '../lib/quota'
+import { isProviderConfigured } from '../lib/providerCredentials'
 
 export type ModelFamily = 'language' | 'speech' | 'vision' | 'vector' | 'router'
 
@@ -33,6 +34,11 @@ interface ModelCenterProps {
   initialFamily?: ModelFamily
   onClose?: () => void
   onUseModel?: (model: CatalogModel) => void
+  models?: CatalogModel[]
+  modelsRefreshing?: boolean
+  modelSyncSummary?: string
+  modelSyncDetail?: string
+  onRefreshModels?: () => void
 }
 
 const familyMeta: Array<{
@@ -49,14 +55,25 @@ const familyMeta: Array<{
 ]
 
 function modelFamily(model: CatalogModel): ModelFamily {
-  if (model.providerId === 'openrouter' || model.id.includes('router')) return 'router'
+  if (model.providerId === 'openrouter' && model.apiModel === 'openrouter/free') return 'router'
   if (model.category === 'chat') return 'language'
   if (model.category === 'audio') return 'speech'
   if (model.category === 'embedding' || model.category === 'reranker') return 'vector'
   return 'vision'
 }
 
-export function ModelCenter({ open = false, embedded = false, initialFamily = 'language', onClose, onUseModel }: ModelCenterProps) {
+export function ModelCenter({
+  open = false,
+  embedded = false,
+  initialFamily = 'language',
+  onClose,
+  onUseModel,
+  models: availableModels = catalogModels,
+  modelsRefreshing = false,
+  modelSyncSummary = '使用内置模型目录',
+  modelSyncDetail = '',
+  onRefreshModels,
+}: ModelCenterProps) {
   const ref = useRef<HTMLDialogElement>(null)
   const [family, setFamily] = useState<ModelFamily>(initialFamily)
   const [query, setQuery] = useState('')
@@ -65,6 +82,7 @@ export function ModelCenter({ open = false, embedded = false, initialFamily = 'l
   const [quotaByProvider, setQuotaByProvider] = useState<Record<string, ProviderQuota>>({})
   const [quotaLoading, setQuotaLoading] = useState<string>()
   const [quotaError, setQuotaError] = useState<Record<string, string>>({})
+  const [displayLimit, setDisplayLimit] = useState(72)
 
   useEffect(() => {
     if (embedded) {
@@ -87,13 +105,24 @@ export function ModelCenter({ open = false, embedded = false, initialFamily = 'l
   }, [embedded, initialFamily, open])
 
   const familyModels = useMemo(
-    () => catalogModels.filter((model) => modelFamily(model) === family),
-    [family],
+    () => availableModels.filter((model) => modelFamily(model) === family),
+    [availableModels, family],
   )
-  const providers = useMemo(
-    () => [...new Set(familyModels.map((model) => model.provider))].sort(),
-    [familyModels],
-  )
+  const providers = useMemo(() => {
+    const familyCounts = new Map<string, number>()
+    const totalCounts = new Map<string, number>()
+    for (const model of familyModels) {
+      familyCounts.set(model.provider, (familyCounts.get(model.provider) ?? 0) + 1)
+    }
+    for (const model of availableModels) {
+      totalCounts.set(model.provider, (totalCounts.get(model.provider) ?? 0) + 1)
+    }
+    return providerDefinitions.map((definition) => ({
+      ...definition,
+      count: familyCounts.get(definition.name) ?? 0,
+      totalCount: totalCounts.get(definition.name) ?? 0,
+    }))
+  }, [availableModels, familyModels])
   const models = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return familyModels.filter((model) =>
@@ -120,6 +149,8 @@ export function ModelCenter({ open = false, embedded = false, initialFamily = 'l
   }
 
   const currentFamily = familyMeta.find((item) => item.id === family)!
+  const availableProviders = providers.filter((item) => item.count > 0)
+  const unavailableProviders = providers.filter((item) => item.count === 0)
 
   const content = (
     <>
@@ -127,25 +158,32 @@ export function ModelCenter({ open = false, embedded = false, initialFamily = 'l
         <div className="marketplace-title">
           <span>MODEL MARKETPLACE</span>
           <h2 id="model-center-title">模型广场</h2>
-          <p>{catalogModels.length} 个模型 · {new Set(catalogModels.map((model) => model.providerId)).size} 个平台</p>
+          <p>{availableModels.length} 个模型 · {providerDefinitions.length} 个平台</p>
+          <small className="model-sync-summary" title={modelSyncDetail}>{modelSyncSummary}</small>
         </div>
         <div className="marketplace-search">
           <Search size={17} />
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => { setQuery(event.target.value); setDisplayLimit(72) }}
             placeholder="搜索模型、平台或模型 ID"
           />
-        </div>
+          </div>
+        {onRefreshModels && (
+          <button type="button" className="model-sync-button" disabled={modelsRefreshing} onClick={onRefreshModels}>
+            <RefreshCw className={modelsRefreshing ? 'spin-icon' : ''} />
+            {modelsRefreshing ? '同步中' : '同步模型'}
+          </button>
+        )}
         {embedded
-          ? <div className="marketplace-account"><span>小Y中转站已连接</span><b>Y</b></div>
+          ? <div className="marketplace-account"><span>XiaoY_ModelHub 已连接</span><b>XY</b></div>
           : <button type="button" className="marketplace-close" aria-label="关闭模型广场" onClick={onClose}><X /></button>}
       </header>
 
       <nav className="model-family-tabs" role="tablist" aria-label="模型分类">
         {familyMeta.map((item) => {
           const Icon = item.icon
-          const count = catalogModels.filter((model) => modelFamily(model) === item.id).length
+          const count = availableModels.filter((model) => modelFamily(model) === item.id).length
           return (
             <button
               type="button"
@@ -156,6 +194,7 @@ export function ModelCenter({ open = false, embedded = false, initialFamily = 'l
               onClick={() => {
                 setFamily(item.id)
                 setProvider('all')
+                setDisplayLimit(72)
               }}
             >
               <Icon size={17} />
@@ -172,14 +211,14 @@ export function ModelCenter({ open = false, embedded = false, initialFamily = 'l
 
           <fieldset>
             <legend>费用类型</legend>
-            <button type="button" className={pricing === 'all' ? 'active' : ''} onClick={() => setPricing('all')}>
+            <button type="button" className={pricing === 'all' ? 'active' : ''} onClick={() => { setPricing('all'); setDisplayLimit(72) }}>
               <span>全部费用</span><b>{familyModels.length}</b>
             </button>
             {(Object.keys(pricingLabels) as PricingTier[]).map((value) => (
               <button
                 type="button"
                 className={pricing === value ? 'active' : ''}
-                onClick={() => setPricing(value)}
+                onClick={() => { setPricing(value); setDisplayLimit(72) }}
                 key={value}
               >
                 <span>{pricingLabels[value]}</span>
@@ -190,20 +229,45 @@ export function ModelCenter({ open = false, embedded = false, initialFamily = 'l
 
           <fieldset>
             <legend>服务平台</legend>
-            <button type="button" className={provider === 'all' ? 'active' : ''} onClick={() => setProvider('all')}>
-              <span>全部平台</span><b>{providers.length}</b>
+            <button type="button" className={provider === 'all' ? 'active' : ''} onClick={() => { setProvider('all'); setDisplayLimit(72) }}>
+              <span>全部平台</span><b>{availableProviders.length}</b>
             </button>
-            {providers.map((value) => (
+            {availableProviders.map((item) => (
               <button
                 type="button"
-                className={provider === value ? 'active' : ''}
-                onClick={() => setProvider(value)}
-                key={value}
+                className={provider === item.name ? 'active' : ''}
+                onClick={() => { setProvider(item.name); setDisplayLimit(72) }}
+                key={item.id}
               >
-                <span>{value}</span>
-                <b>{familyModels.filter((model) => model.provider === value).length}</b>
+                <span>{item.name}</span>
+                <b>{item.count}</b>
               </button>
             ))}
+            {unavailableProviders.length > 0 && (
+              <details className="provider-unavailable">
+                <summary>
+                  <span>其他平台</span>
+                  <b>{unavailableProviders.length}</b>
+                </summary>
+                <div className="provider-unavailable-list">
+                  {unavailableProviders.map((item) => (
+                    <a
+                      href={item.keyUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={item.totalCount > 0 ? '该平台在其他模型分类中有可用模型' : '配置 API Key 后同步模型目录'}
+                      key={item.id}
+                    >
+                      <span>
+                        {item.name}
+                        <small>{item.totalCount > 0 ? `其他分类 ${item.totalCount}` : '配置 Key 后同步'}</small>
+                      </span>
+                      <ExternalLink size={11} />
+                    </a>
+                  ))}
+                </div>
+              </details>
+            )}
           </fieldset>
         </aside>
 
@@ -217,13 +281,13 @@ export function ModelCenter({ open = false, embedded = false, initialFamily = 'l
           </div>
 
           <div className="marketplace-legend">
-            <span><CheckCircle2 />“已接入”可直接切换到创作工作台</span>
+            <span><CheckCircle2 />所有模型都可点击使用；没有 Key 时会引导到 API 设置</span>
             <span><CircleDollarSign />动态额度优先查询 API，其余提供控制台入口</span>
           </div>
 
           <div className="catalog-grid">
-            {models.map((model) => {
-              const configured = configuredProviders[model.providerId]
+            {models.slice(0, displayLimit).map((model) => {
+              const configured = isProviderConfigured(model.providerId)
               const quotaText = quotaByProvider[model.providerId]?.summary
                 ?? quotaError[model.providerId]
                 ?? model.quotaLookup
@@ -260,8 +324,10 @@ export function ModelCenter({ open = false, embedded = false, initialFamily = 'l
                   </div>
 
                   <div className="catalog-links">
-                    {model.integration === 'ready' && onUseModel && (
-                      <button type="button" className="use-model" onClick={() => onUseModel(model)}>在工作台使用</button>
+                    {onUseModel && (
+                      <button type="button" className="use-model" onClick={() => onUseModel(model)}>
+                        {configured ? '使用此模型' : '配置后使用'}
+                      </button>
                     )}
                     {canQueryQuota(model.providerId) && (
                       <button
@@ -280,6 +346,11 @@ export function ModelCenter({ open = false, embedded = false, initialFamily = 'l
               )
             })}
             {!models.length && <div className="catalog-empty">没有符合当前筛选条件的模型</div>}
+            {models.length > displayLimit && (
+              <button type="button" className="catalog-load-more" onClick={() => setDisplayLimit((current) => current + 72)}>
+                再显示 72 个（剩余 {models.length - displayLimit}）
+              </button>
+            )}
           </div>
         </main>
       </div>

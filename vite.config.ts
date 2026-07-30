@@ -13,6 +13,7 @@ const savePath = '/__save_generated_asset'
 const outputPath = '/__generated_output/'
 const generationJobPath = '/__generation_jobs'
 const providerQuotaPath = '/__provider_quota'
+const providerModelsPath = '/__provider_models'
 const creativeAiPath = '/__creative_ai'
 const projectRoot = fileURLToPath(new URL('.', import.meta.url))
 const outputRoot = resolve(projectRoot, 'output')
@@ -301,11 +302,410 @@ function getProviderQuotaJson(target: string, headers: Record<string, string>) {
   })
 }
 
+type DiscoveredModelCategory = 'chat' | 'image' | 'video' | 'audio' | 'embedding' | 'reranker' | '3d'
+type DiscoveredPricingTier = 'free' | 'free-quota' | 'paid' | 'variable'
+
+interface DiscoveredProviderModel {
+  apiModel: string
+  name: string
+  description: string
+  category: DiscoveredModelCategory
+  pricing: DiscoveredPricingTier
+}
+
+const supportedModelProviders = new Set([
+  'ark',
+  'agnes',
+  'anthropic',
+  'baidu',
+  'cerebras',
+  'siliconflow',
+  'modelscope',
+  'gemini',
+  'groq',
+  'openai',
+  'openrouter',
+  'cloudflare',
+  'huggingface',
+  'alibaba',
+  'pollinations',
+  'elevenlabs',
+  'jina',
+  'cohere',
+  'deepinfra',
+  'deepseek',
+  'fireworks',
+  'github',
+  'minimax',
+  'mistral',
+  'moonshot',
+  'nvidia',
+  'perplexity',
+  'replicate',
+  'sambanova',
+  'together',
+  'xai',
+])
+
+const providerDefaultPricing: Record<string, DiscoveredPricingTier> = {
+  ark: 'free-quota',
+  agnes: 'free',
+  anthropic: 'paid',
+  baidu: 'free-quota',
+  cerebras: 'free-quota',
+  siliconflow: 'variable',
+  modelscope: 'free-quota',
+  gemini: 'free-quota',
+  groq: 'free-quota',
+  openai: 'paid',
+  openrouter: 'variable',
+  cloudflare: 'free-quota',
+  huggingface: 'free-quota',
+  alibaba: 'free-quota',
+  pollinations: 'free-quota',
+  elevenlabs: 'free-quota',
+  jina: 'free-quota',
+  cohere: 'free-quota',
+  deepinfra: 'variable',
+  deepseek: 'paid',
+  fireworks: 'variable',
+  github: 'free-quota',
+  minimax: 'paid',
+  mistral: 'paid',
+  moonshot: 'paid',
+  nvidia: 'free-quota',
+  perplexity: 'paid',
+  replicate: 'paid',
+  sambanova: 'free-quota',
+  together: 'paid',
+  xai: 'paid',
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+function stringValue(record: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return ''
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function rowsFromModelPayload(payload: unknown) {
+  if (Array.isArray(payload)) return payload.flatMap((item) => objectValue(item) ? [objectValue(item)!] : [])
+  const root = objectValue(payload)
+  if (!root) return []
+  for (const key of ['data', 'models', 'result', 'results', 'items', 'llms']) {
+    const value = root[key]
+    if (Array.isArray(value)) return value.flatMap((item) => objectValue(item) ? [objectValue(item)!] : [])
+  }
+  return []
+}
+
+function inferModelCategory(record: Record<string, unknown>, apiModel: string): DiscoveredModelCategory {
+  const architecture = objectValue(record.architecture)
+  const outputModalities = [
+    ...stringArray(record.output_modalities),
+    ...stringArray(record.supported_output_modalities),
+    ...stringArray(architecture?.output_modalities),
+  ].map((value) => value.toLowerCase())
+  if (outputModalities.includes('embeddings') || outputModalities.includes('embedding')) return 'embedding'
+  if (outputModalities.includes('video')) return 'video'
+  if (outputModalities.includes('image')) return 'image'
+  if (outputModalities.includes('audio')) return 'audio'
+
+  const endpoints = stringArray(record.endpoints)
+  const descriptor = [
+    apiModel,
+    stringValue(record, 'type', 'sub_type', 'task', 'pipeline_tag', 'category', 'model_type'),
+    stringValue(record, 'name', 'displayName', 'display_name', 'description', 'summary'),
+    ...endpoints,
+  ].join(' ').toLowerCase()
+  if (/rerank|re-rank/.test(descriptor)) return 'reranker'
+  if (/embedding|feature-extraction|sentence-similarity/.test(descriptor)) return 'embedding'
+  if (/text-to-video|image-to-video|video-generation|\bvideo\b/.test(descriptor)) return 'video'
+  if (/text-to-image|image-to-image|image-generation|image-classification|zero-shot-image|object-detection|image-segmentation|depth-estimation|stable-diffusion|segformer|resnet|flux|seedream/.test(descriptor)) return 'image'
+  if (/text-to-speech|speech-to-text|automatic-speech-recognition|audio-classification|voice-activity|transcription|\btts\b|\basr\b|whisper|scribe|\baudio\b|music|sound-effect/.test(descriptor)) return 'audio'
+  if (/text-to-3d|image-to-3d|\b3d\b/.test(descriptor)) return '3d'
+  return 'chat'
+}
+
+function inferModelPricing(provider: string, record: Record<string, unknown>, apiModel: string): DiscoveredPricingTier {
+  if (apiModel.endsWith(':free') || /(?:^|[-_/])free(?:$|[-_/])/.test(apiModel.toLowerCase())) return 'free'
+  const pricing = objectValue(record.pricing)
+  if (pricing) {
+    const numericPrices = Object.values(pricing)
+      .flatMap((value) => typeof value === 'number' || typeof value === 'string' ? [Number(value)] : [])
+      .filter(Number.isFinite)
+    if (numericPrices.length && numericPrices.every((value) => value === 0)) return 'free'
+  }
+  if (record.paid_only === false || record.is_free === true) return 'free'
+  if (record.paid_only === true) return 'paid'
+  return providerDefaultPricing[provider] ?? 'variable'
+}
+
+function normalizeProviderModels(provider: string, payload: unknown): DiscoveredProviderModel[] {
+  const unique = new Map<string, DiscoveredProviderModel>()
+  for (const record of rowsFromModelPayload(payload)) {
+    const owner = stringValue(record, 'owner', 'organization')
+    const recordName = stringValue(record, 'name')
+    const rawId = provider === 'replicate' && owner && recordName
+      ? `${owner}/${recordName}`
+      : stringValue(record, 'baseModelId', 'model_id', 'id', 'name', 'llm')
+    const apiModel = rawId.replace(/^models\//, '')
+    if (!apiModel || apiModel.length > 240) continue
+    const rawName = stringValue(record, 'displayName', 'display_name', 'name', 'model_name', 'model_id', 'id', 'llm')
+    const name = (rawName.replace(/^models\//, '') || apiModel).slice(0, 160)
+    const description = stringValue(record, 'description', 'summary').slice(0, 500)
+      || '由服务商官方模型目录动态同步'
+    unique.set(apiModel, {
+      apiModel,
+      name,
+      description,
+      category: inferModelCategory(record, apiModel),
+      pricing: inferModelPricing(provider, record, apiModel),
+    })
+  }
+  return [...unique.values()]
+}
+
+async function fetchProviderModelPayload(provider: string, apiKey: string, accountId: string) {
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  let target: string
+
+  switch (provider) {
+    case 'openrouter':
+      target = 'https://openrouter.ai/api/v1/models?output_modalities=all'
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'pollinations':
+      target = 'https://gen.pollinations.ai/v1/models'
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'huggingface':
+      target = 'https://huggingface.co/api/models?inference_provider=hf-inference&limit=1000&full=true'
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'elevenlabs':
+      target = 'https://api.elevenlabs.io/v1/models'
+      if (apiKey) headers['xi-api-key'] = apiKey
+      break
+    case 'openai':
+      if (!apiKey) throw new Error('需要先配置 OpenAI API Key 才能同步完整模型目录')
+      target = 'https://api.openai.com/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'anthropic':
+      if (!apiKey) throw new Error('需要先配置 Anthropic API Key 才能同步完整模型目录')
+      target = 'https://api.anthropic.com/v1/models?limit=1000'
+      headers['x-api-key'] = apiKey
+      headers['anthropic-version'] = '2023-06-01'
+      break
+    case 'mistral':
+      if (!apiKey) throw new Error('需要先配置 Mistral API Key 才能同步完整模型目录')
+      target = 'https://api.mistral.ai/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'together':
+      if (!apiKey) throw new Error('需要先配置 Together AI API Key 才能同步完整模型目录')
+      target = 'https://api.together.xyz/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'deepinfra':
+      target = 'https://api.deepinfra.com/v1/openai/models'
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'cerebras':
+      if (!apiKey) throw new Error('需要先配置 Cerebras API Key 才能同步完整模型目录')
+      target = 'https://api.cerebras.ai/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'sambanova':
+      if (!apiKey) throw new Error('需要先配置 SambaNova API Key 才能同步完整模型目录')
+      target = 'https://api.sambanova.ai/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'nvidia':
+      target = 'https://integrate.api.nvidia.com/v1/models'
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'deepseek':
+      if (!apiKey) throw new Error('需要先配置 DeepSeek API Key 才能同步完整模型目录')
+      target = 'https://api.deepseek.com/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'moonshot':
+      if (!apiKey) throw new Error('需要先配置 Moonshot API Key 才能同步完整模型目录')
+      target = 'https://api.moonshot.cn/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'minimax':
+      if (!apiKey) throw new Error('需要先配置 MiniMax API Key 才能同步完整模型目录')
+      target = 'https://api.minimaxi.com/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'baidu':
+      if (!apiKey) throw new Error('需要先配置百度千帆 API Key 才能同步完整模型目录')
+      target = 'https://qianfan.baidubce.com/v2/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'xai':
+      if (!apiKey) throw new Error('需要先配置 xAI API Key 才能同步完整模型目录')
+      target = 'https://api.x.ai/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'perplexity':
+      if (!apiKey) throw new Error('需要先配置 Perplexity API Key 才能同步完整模型目录')
+      target = 'https://api.perplexity.ai/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'github':
+      target = 'https://models.github.ai/catalog/models'
+      headers['X-GitHub-Api-Version'] = '2026-03-10'
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'fireworks':
+      if (!apiKey || !accountId) throw new Error('需要同时配置 Fireworks API Key 和 Account ID')
+      target = `https://api.fireworks.ai/v1/accounts/${encodeURIComponent(accountId)}/models?pageSize=1000`
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'replicate':
+      if (!apiKey) throw new Error('需要先配置 Replicate API Token 才能同步完整模型目录')
+      target = 'https://api.replicate.com/v1/models?sort_by=latest_version_created_at&sort_direction=desc'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'gemini':
+      if (!apiKey) throw new Error('需要先配置 Google Gemini API Key 才能同步完整模型目录')
+      target = `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${encodeURIComponent(apiKey)}`
+      break
+    case 'groq':
+      if (!apiKey) throw new Error('需要先配置 Groq API Key 才能同步完整模型目录')
+      target = 'https://api.groq.com/openai/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'siliconflow':
+      if (!apiKey) throw new Error('需要先配置 SiliconFlow API Key 才能同步完整模型目录')
+      target = 'https://api.siliconflow.cn/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'cloudflare':
+      if (!apiKey || !accountId) throw new Error('需要同时配置 Cloudflare API Token 和 Account ID')
+      target = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/models/search?per_page=1000`
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'cohere':
+      if (!apiKey) throw new Error('需要先配置 Cohere API Key 才能同步完整模型目录')
+      target = 'https://api.cohere.com/v1/models?page_size=1000'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'agnes':
+      if (!apiKey) throw new Error('需要先配置 Agnes API Key 才能同步完整模型目录')
+      target = 'https://apihub.agnes-ai.com/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'modelscope':
+      if (!apiKey) throw new Error('需要先配置 ModelScope API Key 才能同步完整模型目录')
+      target = 'https://api-inference.modelscope.cn/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'alibaba':
+      if (!apiKey) throw new Error('需要先配置阿里云百炼 API Key 才能同步完整模型目录')
+      target = 'https://dashscope.aliyuncs.com/compatible-mode/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'ark':
+      if (!apiKey) throw new Error('需要先配置火山方舟 API Key 才能同步完整模型目录')
+      target = 'https://ark.cn-beijing.volces.com/api/v3/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'jina':
+      if (!apiKey) throw new Error('需要先配置 Jina API Key 才能同步完整模型目录')
+      target = 'https://api.jina.ai/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    default:
+      throw new Error('当前服务商不支持模型目录同步')
+  }
+
+  if (provider === 'replicate') {
+    const results: Record<string, unknown>[] = []
+    let nextPage: string | undefined = target
+    for (let page = 0; page < 12 && nextPage; page += 1) {
+      const nextUrl = new URL(nextPage)
+      if (nextUrl.protocol !== 'https:' || nextUrl.hostname !== 'api.replicate.com') {
+        throw new Error('Replicate 返回了不安全的分页地址')
+      }
+      const upstream = await fetch(nextUrl, { headers, signal: AbortSignal.timeout(30_000) })
+      const payload = await upstream.json().catch(() => ({}))
+      if (!upstream.ok) throw new Error(upstreamError(payload, upstream.status))
+      const root = objectValue(payload)
+      results.push(...rowsFromModelPayload(payload))
+      nextPage = typeof root?.next === 'string' && root.next ? root.next : undefined
+    }
+    return { results }
+  }
+
+  const upstream = await fetch(target, { headers, signal: AbortSignal.timeout(30_000) })
+  const payload = await upstream.json().catch(() => ({}))
+  if (!upstream.ok) throw new Error(upstreamError(payload, upstream.status))
+  return payload
+}
+
+const providerModelsMiddleware: Connect.NextHandleFunction = async (request, response, next) => {
+  if (!request.url?.startsWith(providerModelsPath)) return next()
+  response.setHeader('Content-Type', 'application/json; charset=utf-8')
+  if (request.method !== 'POST') {
+    response.statusCode = 405
+    response.end(JSON.stringify({ error: 'Method not allowed' }))
+    return
+  }
+  try {
+    const body = await readRequestJson(request)
+    const provider = typeof body.provider === 'string' ? body.provider : ''
+    const apiKey = typeof body.apiKey === 'string' ? body.apiKey : ''
+    const accountId = typeof body.accountId === 'string' ? body.accountId : ''
+    if (!supportedModelProviders.has(provider)) throw new Error('未知服务商')
+    const payload = await fetchProviderModelPayload(provider, apiKey, accountId)
+    const models = normalizeProviderModels(provider, payload)
+    response.statusCode = 200
+    response.end(JSON.stringify({ provider, models, syncedAt: Date.now() }))
+  } catch (error) {
+    response.statusCode = 502
+    response.end(JSON.stringify({ error: error instanceof Error ? error.message : '同步服务商模型目录失败' }))
+  }
+}
+
 const chatProviderEndpoints: Record<string, string> = {
+  agnes: 'https://apihub.agnes-ai.com/v1/chat/completions',
+  alibaba: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+  ark: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+  baidu: 'https://qianfan.baidubce.com/v2/chat/completions',
+  cerebras: 'https://api.cerebras.ai/v1/chat/completions',
+  cohere: 'https://api.cohere.com/compatibility/v1/chat/completions',
+  deepinfra: 'https://api.deepinfra.com/v1/openai/chat/completions',
+  deepseek: 'https://api.deepseek.com/chat/completions',
+  fireworks: 'https://api.fireworks.ai/inference/v1/chat/completions',
+  github: 'https://models.github.ai/inference/chat/completions',
+  minimax: 'https://api.minimaxi.com/v1/chat/completions',
+  mistral: 'https://api.mistral.ai/v1/chat/completions',
+  modelscope: 'https://api-inference.modelscope.cn/v1/chat/completions',
+  moonshot: 'https://api.moonshot.cn/v1/chat/completions',
+  nvidia: 'https://integrate.api.nvidia.com/v1/chat/completions',
+  openai: 'https://api.openai.com/v1/chat/completions',
+  perplexity: 'https://api.perplexity.ai/chat/completions',
+  sambanova: 'https://api.sambanova.ai/v1/chat/completions',
   siliconflow: 'https://api.siliconflow.cn/v1/chat/completions',
   groq: 'https://api.groq.com/openai/v1/chat/completions',
   openrouter: 'https://openrouter.ai/api/v1/chat/completions',
   pollinations: 'https://gen.pollinations.ai/v1/chat/completions',
+  together: 'https://api.together.xyz/v1/chat/completions',
+  xai: 'https://api.x.ai/v1/chat/completions',
 }
 const allowedSpeechVoices = new Set(['JBFqnCBsd6RMkjVDRZzb', '21m00Tcm4TlvDq8ikWAM', 'pNInz6obpgDQGcFmaJgB'])
 const pollinationsSpeechVoices: Record<string, string> = {
@@ -351,7 +751,22 @@ const creativeAiMiddleware: Connect.NextHandleFunction = async (request, respons
         ? body.messages.slice(-20).flatMap((message) => {
           if (!message || typeof message !== 'object') return []
           const role = 'role' in message && (message.role === 'user' || message.role === 'assistant') ? message.role : undefined
-          const content = 'content' in message && typeof message.content === 'string' ? message.content.slice(0, 32_000) : ''
+          const rawContent = 'content' in message ? message.content : ''
+          const content = typeof rawContent === 'string'
+            ? rawContent.slice(0, 32_000)
+            : Array.isArray(rawContent)
+              ? rawContent.slice(0, 6).reduce<Array<Record<string, unknown>>>((items, item) => {
+                  if (!item || typeof item !== 'object' || !('type' in item)) return items
+                  if (item.type === 'text' && 'text' in item && typeof item.text === 'string') {
+                    items.push({ type: 'text', text: item.text.slice(0, 32_000) })
+                    return items
+                  }
+                  if (item.type === 'image_url' && 'image_url' in item && item.image_url && typeof item.image_url === 'object' && 'url' in item.image_url && typeof item.image_url.url === 'string' && /^data:image\/(?:png|jpeg|webp);base64,/.test(item.image_url.url)) {
+                    items.push({ type: 'image_url', image_url: { url: item.image_url.url.slice(0, 8_000_000) } })
+                  }
+                  return items
+                }, [])
+              : ''
           return role && content ? [{ role, content }] : []
         })
         : []
@@ -365,7 +780,8 @@ const creativeAiMiddleware: Connect.NextHandleFunction = async (request, respons
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
-          ...(provider === 'openrouter' ? { 'HTTP-Referer': 'http://127.0.0.1:43129', 'X-Title': '小Y中转站' } : {}),
+          ...(provider === 'openrouter' ? { 'HTTP-Referer': 'http://127.0.0.1:43129', 'X-Title': 'XiaoY_ModelHub' } : {}),
+          ...(provider === 'github' ? { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10' } : {}),
         },
         body: JSON.stringify({
           model,
@@ -387,7 +803,10 @@ const creativeAiMiddleware: Connect.NextHandleFunction = async (request, respons
     if (task === 'tts') {
       if (provider !== 'elevenlabs' && provider !== 'pollinations') throw new Error('该文字转语音服务商尚未接入')
       const text = typeof body.text === 'string' ? body.text.trim().slice(0, 5_000) : ''
-      const voiceId = typeof body.voiceId === 'string' && allowedSpeechVoices.has(body.voiceId) ? body.voiceId : ''
+      const voiceId = typeof body.voiceId === 'string' && (allowedSpeechVoices.has(body.voiceId) || (provider === 'elevenlabs' && /^[a-zA-Z0-9_-]{10,80}$/.test(body.voiceId))) ? body.voiceId : ''
+      const requestedVoiceSettings = body.voiceSettings && typeof body.voiceSettings === 'object'
+        ? body.voiceSettings as Record<string, unknown>
+        : undefined
       if (!text) throw new Error('请输入需要朗读的文字')
       if (!voiceId) throw new Error('不支持当前声音')
       const upstream = provider === 'pollinations'
@@ -400,7 +819,19 @@ const creativeAiMiddleware: Connect.NextHandleFunction = async (request, respons
         : await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
             method: 'POST',
             headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
-            body: JSON.stringify({ text, model_id: model }),
+            body: JSON.stringify({
+              text,
+              model_id: model,
+              voice_settings: requestedVoiceSettings
+                ? {
+                    stability: Math.max(0, Math.min(1, Number(requestedVoiceSettings.stability) || 0.5)),
+                    similarity_boost: Math.max(0, Math.min(1, Number(requestedVoiceSettings.similarityBoost) || 0.75)),
+                    style: Math.max(0, Math.min(1, Number(requestedVoiceSettings.style) || 0)),
+                    speed: Math.max(0.7, Math.min(1.2, Number(requestedVoiceSettings.speed) || 1)),
+                    use_speaker_boost: requestedVoiceSettings.useSpeakerBoost !== false,
+                  }
+                : undefined,
+            }),
             signal: AbortSignal.timeout(120_000),
           })
       if (!upstream.ok) {
@@ -414,6 +845,34 @@ const creativeAiMiddleware: Connect.NextHandleFunction = async (request, respons
         contentType: upstream.headers.get('content-type') ?? 'audio/mpeg',
         characterCost: upstream.headers.get('character-cost') ?? undefined,
       }))
+      return
+    }
+
+    if (task === 'clone_voice') {
+      if (provider !== 'elevenlabs') throw new Error('当前服务商不支持参考声音')
+      if (body.consent !== true) throw new Error('必须确认拥有参考声音的使用权限')
+      const audioBase64 = typeof body.audioBase64 === 'string' ? body.audioBase64 : ''
+      const fileName = typeof body.fileName === 'string' ? body.fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120) : 'reference.mp3'
+      const mimeType = typeof body.mimeType === 'string' && body.mimeType.startsWith('audio/') ? body.mimeType : 'audio/mpeg'
+      const audio = Buffer.from(audioBase64, 'base64')
+      if (!audio.length) throw new Error('参考声音文件为空')
+      if (audio.length > 10 * 1024 * 1024) throw new Error('参考声音文件不能超过 10MB')
+      const form = new FormData()
+      form.append('files', new Blob([new Uint8Array(audio)], { type: mimeType }), fileName)
+      form.append('name', typeof body.name === 'string' ? body.name.slice(0, 80) : '参考声音')
+      form.append('description', '由 XiaoY_ModelHub 根据用户授权的参考音频创建')
+      form.append('remove_background_noise', 'false')
+      const upstream = await fetch('https://api.elevenlabs.io/v1/voices/add', {
+        method: 'POST',
+        headers: { 'xi-api-key': apiKey },
+        body: form,
+        signal: AbortSignal.timeout(120_000),
+      })
+      const result = await upstream.json().catch(() => ({})) as { voice_id?: string }
+      if (!upstream.ok) throw new Error(upstreamError(result, upstream.status))
+      if (!result.voice_id) throw new Error('服务商未返回自定义声音 ID')
+      response.statusCode = 200
+      response.end(JSON.stringify({ voiceId: result.voice_id }))
       return
     }
 
@@ -736,6 +1195,7 @@ const assetProxy: Connect.NextHandleFunction = (request, response, next) => {
 const assetProxyPlugin: Plugin = {
   name: 'volcengine-asset-proxy',
   configureServer(server) {
+    server.middlewares.use(providerModelsMiddleware)
     server.middlewares.use(creativeAiMiddleware)
     server.middlewares.use(providerQuotaMiddleware)
     server.middlewares.use(durableGenerationMiddleware)
@@ -744,6 +1204,7 @@ const assetProxyPlugin: Plugin = {
     server.middlewares.use(assetProxy)
   },
   configurePreviewServer(server) {
+    server.middlewares.use(providerModelsMiddleware)
     server.middlewares.use(creativeAiMiddleware)
     server.middlewares.use(providerQuotaMiddleware)
     server.middlewares.use(durableGenerationMiddleware)

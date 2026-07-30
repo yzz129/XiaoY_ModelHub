@@ -2,28 +2,17 @@ import type { GenerationSettings, GeneratedAsset, PendingThreeDTask, PendingVide
 import { compilePrompt } from './prompt'
 import { styleTemplates } from '../data/templates'
 import { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL, imageModels, videoModels } from '../data/models'
+import { getProviderCredentials, isProviderConfigured } from './providerCredentials'
 
 const config = {
-  apiKey: import.meta.env.VITE_ARK_API_KEY ?? '',
   baseUrl: import.meta.env.VITE_ARK_BASE_URL ?? 'https://ark.cn-beijing.volces.com/api/v3',
-  agnesApiKey: import.meta.env.VITE_AGNES_API_KEY ?? '',
   agnesBaseUrl: (import.meta.env.VITE_AGNES_BASE_URL ?? 'https://apihub.agnes-ai.com/v1').replace(/\/$/, ''),
-  siliconFlowApiKey: import.meta.env.VITE_SILICONFLOW_API_KEY ?? '',
   siliconFlowBaseUrl: (import.meta.env.VITE_SILICONFLOW_BASE_URL ?? 'https://api.siliconflow.cn/v1').replace(/\/$/, ''),
-  cloudflareApiToken: import.meta.env.VITE_CLOUDFLARE_API_TOKEN ?? '',
-  cloudflareAccountId: import.meta.env.VITE_CLOUDFLARE_ACCOUNT_ID ?? '',
-  pollinationsApiKey: import.meta.env.VITE_POLLINATIONS_API_KEY ?? '',
   pollinationsBaseUrl: (import.meta.env.VITE_POLLINATIONS_BASE_URL ?? 'https://gen.pollinations.ai').replace(/\/$/, ''),
   threeDModel: import.meta.env.VITE_ARK_3D_MODEL ?? 'doubao-seed3d-2-0-260328',
   hyperThreeDModel: import.meta.env.VITE_ARK_HYPER3D_MODEL ?? 'hyper3d-gen2-260112',
 }
 
-export const hasArkApiKey = Boolean(config.apiKey)
-export const hasAgnesApiKey = Boolean(config.agnesApiKey)
-export const hasSiliconFlowApiKey = Boolean(config.siliconFlowApiKey)
-export const hasCloudflareApiKey = Boolean(config.cloudflareApiToken && config.cloudflareAccountId)
-export const hasPollinationsApiKey = Boolean(config.pollinationsApiKey)
-export const hasApiKey = hasArkApiKey || hasAgnesApiKey || hasSiliconFlowApiKey || hasCloudflareApiKey || hasPollinationsApiKey
 export const arkModels = { image: DEFAULT_IMAGE_MODEL, video: DEFAULT_VIDEO_MODEL, threeD: config.threeDModel, hyperThreeD: config.hyperThreeDModel }
 
 function providerForSettings(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel'>) {
@@ -34,12 +23,7 @@ function providerForSettings(settings: Pick<GenerationSettings, 'kind' | 'imageM
 }
 
 export function hasApiKeyForSettings(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel'>) {
-  const provider = providerForSettings(settings)
-  return provider === 'agnes' ? hasAgnesApiKey
-    : provider === 'siliconflow' ? hasSiliconFlowApiKey
-      : provider === 'cloudflare' ? hasCloudflareApiKey
-        : provider === 'pollinations' ? hasPollinationsApiKey
-          : hasArkApiKey
+  return isProviderConfigured(providerForSettings(settings))
 }
 
 export function getProviderName(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel'>) {
@@ -57,12 +41,13 @@ function snapshot(settings: GenerationSettings): SettingsSnapshot {
 }
 
 async function arkFetch<T>(path: string, init: RequestInit): Promise<T> {
-  if (!config.apiKey) throw new Error('请先在 .env.local 中配置 VITE_ARK_API_KEY')
+  const apiKey = getProviderCredentials('ark').apiKey
+  if (!apiKey) throw new Error('请先在 API 设置中配置火山方舟 API Key')
   let response: Response
   try {
     response = await fetch(`${config.baseUrl}${path}`, {
       ...init,
-      headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json', ...init.headers },
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', ...init.headers },
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw new Error('已停止本地查询，远端任务可能仍在继续', { cause: error })
@@ -108,13 +93,14 @@ function isQuotaError(detail: string) {
 }
 
 async function agnesFetch<T>(path: string, init: RequestInit): Promise<T> {
-  if (!config.agnesApiKey) throw new Error('请先在 .env.local 中配置 VITE_AGNES_API_KEY')
+  const apiKey = getProviderCredentials('agnes').apiKey
+  if (!apiKey) throw new Error('请先在 API 设置中配置 Agnes AI API Key')
   const baseUrl = path.startsWith('/agnesapi') ? config.agnesBaseUrl.replace(/\/v1$/, '') : config.agnesBaseUrl
   let response: Response
   try {
     response = await fetch(`${baseUrl}${path}`, {
       ...init,
-      headers: { Authorization: `Bearer ${config.agnesApiKey}`, 'Content-Type': 'application/json', ...init.headers },
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', ...init.headers },
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw new Error('已停止本地查询，远端任务可能仍在继续', { cause: error })
@@ -203,7 +189,7 @@ async function uploadPollinationsImage(image: { dataUrl: string; mimeType: strin
   const result = await durableJsonPost<{ url?: string }>(
     jobId,
     `${config.pollinationsBaseUrl}/upload`,
-    config.pollinationsApiKey,
+    getProviderCredentials('pollinations').apiKey,
     { data: image.dataUrl, contentType: image.mimeType, name: image.name },
     signal,
   )
@@ -223,7 +209,7 @@ export async function generateImage(settings: GenerationSettings, sessionId: str
     response = await durableJsonPost<{ data?: Array<{ url?: string; b64_json?: string }> }>(
         `image-${generationJobId}`,
         `${config.agnesBaseUrl}/images/generations`,
-        config.agnesApiKey,
+        getProviderCredentials('agnes').apiKey,
         { model: imageModel, prompt: compiledPrompt, size: settings.resolution, ratio: settings.ratio, extra_body: { response_format: 'url', ...(referenceImage ? { image: [referenceImage] } : {}) } },
         signal,
       )
@@ -231,7 +217,7 @@ export async function generateImage(settings: GenerationSettings, sessionId: str
     response = await durableJsonPost<{ images?: Array<{ url?: string }> }>(
       `image-${generationJobId}`,
       `${config.siliconFlowBaseUrl}/images/generations`,
-      config.siliconFlowApiKey,
+      getProviderCredentials('siliconflow').apiKey,
       { model: imageModel, prompt: compiledPrompt, image_size: imageSizes[settings.ratio], batch_size: 1, num_inference_steps: 20, guidance_scale: 7.5 },
       signal,
     )
@@ -240,7 +226,7 @@ export async function generateImage(settings: GenerationSettings, sessionId: str
     response = await durableJsonPost<{ data?: Array<{ url?: string; b64_json?: string }> }>(
       `image-${generationJobId}`,
       `${config.pollinationsBaseUrl}/v1/images/generations`,
-      config.pollinationsApiKey,
+      getProviderCredentials('pollinations').apiKey,
       {
         model: imageModel,
         prompt: compiledPrompt,
@@ -256,8 +242,8 @@ export async function generateImage(settings: GenerationSettings, sessionId: str
     const isSdxlLightning = imageModel === '@cf/bytedance/stable-diffusion-xl-lightning'
     response = await durableJsonPost<{ result?: { image?: string } }>(
       `image-${generationJobId}`,
-      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(config.cloudflareAccountId)}/ai/run/${imageModel}`,
-      config.cloudflareApiToken,
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(getProviderCredentials('cloudflare').accountId ?? '')}/ai/run/${imageModel}`,
+      getProviderCredentials('cloudflare').apiKey,
       isSdxlLightning
         ? {
             prompt: compiledPrompt,
@@ -273,7 +259,7 @@ export async function generateImage(settings: GenerationSettings, sessionId: str
     response = await durableJsonPost<{ data?: Array<{ url?: string; b64_json?: string }> }>(
         `image-${generationJobId}`,
         `${config.baseUrl}/images/generations`,
-        config.apiKey,
+        getProviderCredentials('ark').apiKey,
         { model: imageModel, prompt: compiledPrompt, size: settings.ratio === '1:1' ? settings.resolution : `${settings.resolution} ${settings.ratio}`, n: 1, response_format: 'url', watermark: false, ...(referenceImage ? { image: [referenceImage] } : {}) },
         signal,
       )
@@ -334,7 +320,7 @@ export async function createVideoTask(settings: GenerationSettings, sessionId: s
     if (uploadedImages.length) url.searchParams.set('image', uploadedImages.join('|'))
     if (['veo', 'veo-1080p', 'seedance-2.0', 'wan-pro'].includes(videoModel)) url.searchParams.set('audio', 'true')
     const taskId = `pollinations-video-${requestId}`
-    await beginDurableVideoJob(taskId, url.toString(), config.pollinationsApiKey, signal)
+    await beginDurableVideoJob(taskId, url.toString(), getProviderCredentials('pollinations').apiKey, signal)
     return { taskId, provider: 'pollinations', compiledPrompt, settings: snapshot(settings), sessionId, createdAt: Date.now() }
   }
   if (videoOption.provider === 'agnes') {
@@ -357,7 +343,7 @@ export async function createVideoTask(settings: GenerationSettings, sessionId: s
     } else if (settings.referenceImages?.length) {
       body.extra_body = { image: settings.referenceImages.slice(0, 2).map((image) => image.dataUrl), mode: 'keyframes' }
     }
-    const response = await durableJsonPost<VideoTaskResponse>(`video-${requestId}`, `${config.agnesBaseUrl}/videos`, config.agnesApiKey, body, signal)
+    const response = await durableJsonPost<VideoTaskResponse>(`video-${requestId}`, `${config.agnesBaseUrl}/videos`, getProviderCredentials('agnes').apiKey, body, signal)
     const taskId = response.task_id ?? response.id
     if (!taskId) throw new Error('Agnes AI 未返回视频任务 ID，请核对当前 API 协议')
     return { taskId, videoId: response.video_id, provider: 'agnes', compiledPrompt, settings: snapshot(settings), sessionId, createdAt: Date.now() }
@@ -369,7 +355,7 @@ export async function createVideoTask(settings: GenerationSettings, sessionId: s
   const response = await durableJsonPost<VideoTaskResponse>(
     `video-${requestId}`,
     `${config.baseUrl}/contents/generations/tasks`,
-    config.apiKey,
+    getProviderCredentials('ark').apiKey,
     { model: videoModel, content, duration: settings.duration, ratio: settings.ratio, resolution: settings.resolution, watermark: false },
     signal,
   )
@@ -436,7 +422,7 @@ export async function createThreeDTask(settings: GenerationSettings, sessionId: 
   const response = await durableJsonPost<ThreeDTaskResponse>(
     `3d-${requestId}`,
     `${config.baseUrl}/contents/generations/tasks`,
-    config.apiKey,
+    getProviderCredentials('ark').apiKey,
     {
       model: settings.threeDModel ?? config.threeDModel,
       content: [

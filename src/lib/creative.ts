@@ -1,30 +1,37 @@
 import { catalogModels, type CatalogModel } from '../data/providerCatalog'
+import { getProviderCredentials, isProviderConfigured } from './providerCredentials'
 
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   createdAt: number
+  attachments?: ChatAttachment[]
+}
+
+export interface ChatAttachment {
+  id: string
+  name: string
+  type: string
+  size: number
+  dataUrl?: string
+  text?: string
 }
 
 export const languageModels = catalogModels.filter((model) =>
-  model.category === 'chat' && model.integration === 'ready',
+  model.category === 'chat',
 )
 
 export const voiceModels = catalogModels.filter((model) =>
-  model.category === 'audio' && model.integration === 'ready',
+  model.category === 'audio',
 )
 
-const providerKeys: Record<string, string> = {
-  siliconflow: import.meta.env.VITE_SILICONFLOW_API_KEY ?? '',
-  groq: import.meta.env.VITE_GROQ_API_KEY ?? '',
-  openrouter: import.meta.env.VITE_OPENROUTER_API_KEY ?? '',
-  pollinations: import.meta.env.VITE_POLLINATIONS_API_KEY ?? '',
-  elevenlabs: import.meta.env.VITE_ELEVENLABS_API_KEY ?? '',
+export function hasCreativeProviderKey(providerId: string) {
+  return isProviderConfigured(providerId)
 }
 
-export function hasCreativeProviderKey(providerId: string) {
-  return Boolean(providerKeys[providerId])
+export function supportsLanguageImageInput(model: CatalogModel) {
+  return model.description.includes('图片输入') || model.apiModel.includes('claude')
 }
 
 async function creativeRequest<T>(body: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
@@ -55,11 +62,26 @@ export async function sendLanguageMessage(
   const data = await creativeRequest<{ content?: string }>({
     task: 'chat',
     provider: model.providerId,
-    apiKey: providerKeys[model.providerId],
+    apiKey: getProviderCredentials(model.providerId).apiKey,
     model: model.apiModel,
     systemPrompt,
     temperature,
-    messages: messages.map(({ role, content }) => ({ role, content })),
+    messages: messages.map(({ role, content, attachments }) => {
+      if (role !== 'user' || !attachments?.length) return { role, content }
+      const textAttachments = attachments
+        .filter((attachment) => attachment.text)
+        .map((attachment) => `\n\n--- 附件：${attachment.name} ---\n${attachment.text}`)
+        .join('')
+      const images = attachments.filter((attachment) => attachment.type.startsWith('image/') && attachment.dataUrl)
+      if (!images.length) return { role, content: `${content}${textAttachments}` }
+      return {
+        role,
+        content: [
+          { type: 'text', text: `${content}${textAttachments}` },
+          ...images.map((attachment) => ({ type: 'image_url', image_url: { url: attachment.dataUrl } })),
+        ],
+      }
+    }),
   }, signal)
   if (!data.content?.trim()) throw new Error(`${model.name} 未返回文本内容`)
   return data.content.trim()
@@ -81,19 +103,29 @@ export function isTextToSpeechModel(model: CatalogModel) {
   return model.providerId === 'elevenlabs' || model.apiModel.includes('tts') || model.apiModel.startsWith('eleven')
 }
 
+export interface VoiceSettings {
+  stability: number
+  similarityBoost: number
+  style: number
+  speed: number
+  useSpeakerBoost: boolean
+}
+
 export async function createSpeech(
   model: CatalogModel,
   text: string,
   voiceId: string,
+  voiceSettings?: VoiceSettings,
   signal?: AbortSignal,
 ) {
   const data = await creativeRequest<{ audioBase64?: string; contentType?: string; characterCost?: string }>({
     task: 'tts',
     provider: model.providerId,
-    apiKey: providerKeys[model.providerId],
+    apiKey: getProviderCredentials(model.providerId).apiKey,
     model: model.apiModel,
     text,
     voiceId,
+    voiceSettings,
   }, signal)
   if (!data.audioBase64) throw new Error('语音服务未返回音频')
   return {
@@ -102,18 +134,41 @@ export async function createSpeech(
   }
 }
 
-export async function transcribeSpeech(model: CatalogModel, file: File, signal?: AbortSignal) {
-  if (file.size > 25 * 1024 * 1024) throw new Error('免费档单个音频文件不能超过 25MB')
-  const audioBase64 = await new Promise<string>((resolve, reject) => {
+async function fileToBase64(file: File) {
+  return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
-    reader.onerror = () => reject(new Error('无法读取音频文件'))
+    reader.onerror = () => reject(new Error('无法读取文件'))
     reader.onload = () => resolve(String(reader.result).split(',', 2)[1] ?? '')
     reader.readAsDataURL(file)
   })
+}
+
+export async function cloneSpeechVoice(file: File, name: string, consent: boolean, signal?: AbortSignal) {
+  if (!consent) throw new Error('请先确认你拥有该参考声音的使用权限')
+  if (!file.type.startsWith('audio/')) throw new Error('参考声音必须是音频文件')
+  if (file.size > 10 * 1024 * 1024) throw new Error('参考声音文件不能超过 10MB')
+  const data = await creativeRequest<{ voiceId?: string }>({
+    task: 'clone_voice',
+    provider: 'elevenlabs',
+    apiKey: getProviderCredentials('elevenlabs').apiKey,
+    model: 'eleven_flash_v2_5',
+    name: name.trim().slice(0, 80) || `参考声音 ${new Date().toLocaleDateString()}`,
+    fileName: file.name,
+    mimeType: file.type,
+    audioBase64: await fileToBase64(file),
+    consent,
+  }, signal)
+  if (!data.voiceId) throw new Error('参考声音创建失败')
+  return data.voiceId
+}
+
+export async function transcribeSpeech(model: CatalogModel, file: File, signal?: AbortSignal) {
+  if (file.size > 25 * 1024 * 1024) throw new Error('免费档单个音频文件不能超过 25MB')
+  const audioBase64 = await fileToBase64(file)
   const data = await creativeRequest<{ text?: string }>({
     task: 'stt',
     provider: model.providerId,
-    apiKey: providerKeys[model.providerId],
+    apiKey: getProviderCredentials(model.providerId).apiKey,
     model: model.apiModel,
     fileName: file.name,
     mimeType: file.type || 'audio/mpeg',

@@ -28,50 +28,85 @@ export const categoryLabels: Record<ModelCategory, string> = {
   '3d': '3D',
 }
 
+export interface ProviderDefinition {
+  id: string
+  name: string
+  docsUrl: string
+  keyUrl: string
+  publicModelCatalog?: boolean
+}
+
+const allProviderDefinitions: ProviderDefinition[] = [
+  { id: 'agnes', name: 'Agnes AI', docsUrl: 'https://agnes-ai.com/zh-Hans/docs', keyUrl: 'https://agnes-ai.com/' },
+  { id: 'anthropic', name: 'Anthropic Claude', docsUrl: 'https://platform.claude.com/docs/en/api/models/list', keyUrl: 'https://console.anthropic.com/settings/keys' },
+  { id: 'baidu', name: '百度智能云千帆', docsUrl: 'https://cloud.baidu.com/doc/qianfan-api/s/Dmba8k71y', keyUrl: 'https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application' },
+  { id: 'cerebras', name: 'Cerebras', docsUrl: 'https://inference-docs.cerebras.ai/api-reference/models/list-models', keyUrl: 'https://cloud.cerebras.ai/' },
+  { id: 'cloudflare', name: 'Cloudflare Workers AI', docsUrl: 'https://developers.cloudflare.com/workers-ai/models/', keyUrl: 'https://dash.cloudflare.com/' },
+  { id: 'cohere', name: 'Cohere', docsUrl: 'https://docs.cohere.com/', keyUrl: 'https://dashboard.cohere.com/api-keys' },
+  { id: 'deepinfra', name: 'DeepInfra', docsUrl: 'https://deepinfra.com/docs', keyUrl: 'https://deepinfra.com/dash/api_keys', publicModelCatalog: true },
+  { id: 'deepseek', name: 'DeepSeek', docsUrl: 'https://api-docs.deepseek.com/api/list-models', keyUrl: 'https://platform.deepseek.com/api_keys' },
+  { id: 'elevenlabs', name: 'ElevenLabs', docsUrl: 'https://elevenlabs.io/docs/api-reference/models/list', keyUrl: 'https://elevenlabs.io/app/settings/api-keys' },
+  { id: 'fireworks', name: 'Fireworks AI', docsUrl: 'https://docs.fireworks.ai/api-reference/list-models', keyUrl: 'https://app.fireworks.ai/settings/users/api-keys' },
+  { id: 'gemini', name: 'Google Gemini', docsUrl: 'https://ai.google.dev/api/models', keyUrl: 'https://aistudio.google.com/apikey' },
+  { id: 'github', name: 'GitHub Models', docsUrl: 'https://docs.github.com/en/rest/models/catalog', keyUrl: 'https://github.com/settings/tokens', publicModelCatalog: true },
+  { id: 'groq', name: 'Groq', docsUrl: 'https://console.groq.com/docs/models', keyUrl: 'https://console.groq.com/keys' },
+  { id: 'huggingface', name: 'Hugging Face', docsUrl: 'https://huggingface.co/docs/inference-providers/en/hub-api', keyUrl: 'https://huggingface.co/settings/tokens', publicModelCatalog: true },
+  { id: 'jina', name: 'Jina AI', docsUrl: 'https://jina.ai/embeddings/', keyUrl: 'https://jina.ai/api-dashboard/' },
+  { id: 'minimax', name: 'MiniMax', docsUrl: 'https://platform.minimaxi.com/docs/api-reference/models/openai/list-models', keyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key' },
+  { id: 'mistral', name: 'Mistral AI', docsUrl: 'https://docs.mistral.ai/api/endpoint/models', keyUrl: 'https://console.mistral.ai/api-keys' },
+  { id: 'modelscope', name: 'ModelScope', docsUrl: 'https://modelscope.cn/docs', keyUrl: 'https://modelscope.cn/my/myaccesstoken' },
+  { id: 'moonshot', name: 'Moonshot AI', docsUrl: 'https://platform.moonshot.cn/docs/api-reference', keyUrl: 'https://platform.moonshot.cn/console/api-keys' },
+  { id: 'nvidia', name: 'NVIDIA NIM', docsUrl: 'https://docs.api.nvidia.com/nim/reference/llm-apis', keyUrl: 'https://build.nvidia.com/settings/api-keys', publicModelCatalog: true },
+  { id: 'openai', name: 'OpenAI', docsUrl: 'https://platform.openai.com/docs/api-reference/models/list', keyUrl: 'https://platform.openai.com/api-keys' },
+  { id: 'openrouter', name: 'OpenRouter', docsUrl: 'https://openrouter.ai/docs/api/api-reference/models/get-models', keyUrl: 'https://openrouter.ai/settings/keys', publicModelCatalog: true },
+  { id: 'perplexity', name: 'Perplexity', docsUrl: 'https://docs.perplexity.ai/api-reference/models-get', keyUrl: 'https://www.perplexity.ai/settings/api' },
+  { id: 'pollinations', name: 'Pollinations', docsUrl: 'https://gen.pollinations.ai/docs', keyUrl: 'https://enter.pollinations.ai/', publicModelCatalog: true },
+  { id: 'replicate', name: 'Replicate', docsUrl: 'https://replicate.com/docs/reference/http#models.list', keyUrl: 'https://replicate.com/account/api-tokens' },
+  { id: 'sambanova', name: 'SambaNova', docsUrl: 'https://docs.sambanova.ai/docs/api-reference/endpoints/model-list', keyUrl: 'https://cloud.sambanova.ai/apis' },
+  { id: 'siliconflow', name: 'SiliconFlow', docsUrl: 'https://docs.siliconflow.cn/en/api-reference/models/get-model-list', keyUrl: 'https://cloud.siliconflow.cn/account/ak' },
+  { id: 'together', name: 'Together AI', docsUrl: 'https://docs.together.ai/reference/models', keyUrl: 'https://api.together.ai/settings/api-keys' },
+  { id: 'xai', name: 'xAI', docsUrl: 'https://docs.x.ai/developers/rest-api-reference/inference/models', keyUrl: 'https://console.x.ai/team/default/api-keys' },
+  { id: 'alibaba', name: '阿里云百炼', docsUrl: 'https://help.aliyun.com/zh/model-studio/', keyUrl: 'https://bailian.console.aliyun.com/' },
+  { id: 'ark', name: '火山方舟', docsUrl: 'https://www.volcengine.com/docs/82379', keyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey' },
+]
+
+const enabledProviderIds = new Set(['agnes', 'openrouter'])
+
+export const providerDefinitions = allProviderDefinitions.filter((provider) => enabledProviderIds.has(provider.id))
+
+export const providerDefinitionById = Object.fromEntries(
+  providerDefinitions.map((provider) => [provider.id, provider]),
+) as Record<string, ProviderDefinition>
+
 export const pricingLabels: Record<PricingTier, string> = {
   free: '完全免费',
   'free-quota': '有免费额度',
-  paid: '付费',
   variable: '按模型计费',
+  paid: '付费',
+}
+
+const pricingPriority: Record<PricingTier, number> = {
+  free: 0,
+  'free-quota': 1,
+  variable: 2,
+  paid: 3,
+}
+
+export function sortModelsByPricing<T extends { pricing: PricingTier }>(models: readonly T[]): T[] {
+  return [...models].sort((left, right) => pricingPriority[left.pricing] - pricingPriority[right.pricing])
 }
 
 export const providerEnvironmentKeys: Record<string, string[]> = {
-  ark: ['VITE_ARK_API_KEY'],
   agnes: ['VITE_AGNES_API_KEY'],
-  siliconflow: ['VITE_SILICONFLOW_API_KEY'],
-  modelscope: ['VITE_MODELSCOPE_API_KEY'],
-  gemini: ['VITE_GEMINI_API_KEY'],
-  groq: ['VITE_GROQ_API_KEY'],
   openrouter: ['VITE_OPENROUTER_API_KEY'],
-  cloudflare: ['VITE_CLOUDFLARE_API_TOKEN', 'VITE_CLOUDFLARE_ACCOUNT_ID'],
-  huggingface: ['VITE_HUGGINGFACE_TOKEN'],
-  alibaba: ['VITE_DASHSCOPE_API_KEY'],
-  pollinations: ['VITE_POLLINATIONS_API_KEY'],
-  elevenlabs: ['VITE_ELEVENLABS_API_KEY'],
-  jina: ['VITE_JINA_API_KEY'],
-  cohere: ['VITE_COHERE_API_KEY'],
 }
 
-export const configuredProviders: Record<string, boolean> = {
-  ark: Boolean(import.meta.env.VITE_ARK_API_KEY),
-  agnes: Boolean(import.meta.env.VITE_AGNES_API_KEY),
-  siliconflow: Boolean(import.meta.env.VITE_SILICONFLOW_API_KEY),
-  modelscope: Boolean(import.meta.env.VITE_MODELSCOPE_API_KEY),
-  gemini: Boolean(import.meta.env.VITE_GEMINI_API_KEY),
-  groq: Boolean(import.meta.env.VITE_GROQ_API_KEY),
-  openrouter: Boolean(import.meta.env.VITE_OPENROUTER_API_KEY),
-  cloudflare: Boolean(import.meta.env.VITE_CLOUDFLARE_API_TOKEN && import.meta.env.VITE_CLOUDFLARE_ACCOUNT_ID),
-  huggingface: Boolean(import.meta.env.VITE_HUGGINGFACE_TOKEN),
-  alibaba: Boolean(import.meta.env.VITE_DASHSCOPE_API_KEY),
-  pollinations: Boolean(import.meta.env.VITE_POLLINATIONS_API_KEY),
-  elevenlabs: Boolean(import.meta.env.VITE_ELEVENLABS_API_KEY),
-  jina: Boolean(import.meta.env.VITE_JINA_API_KEY),
-  cohere: Boolean(import.meta.env.VITE_COHERE_API_KEY),
-}
-
-export const catalogModels: CatalogModel[] = [
+export const catalogModels: CatalogModel[] = sortModelsByPricing<CatalogModel>([
+  { id: 'ark-doubao-seed-lite', apiModel: 'doubao-seed-1-6-lite-250615', name: 'Doubao Seed 1.6 Lite', provider: '火山方舟', providerId: 'ark', category: 'chat', pricing: 'free-quota', quota: '注册并开通方舟后可领取体验额度；到账金额和适用模型以控制台为准', quotaLookup: '方舟控制台的免费体验与费用中心查看', integration: 'ready', description: '国内低延迟、OpenAI 兼容的豆包轻量语言模型', docsUrl: 'https://www.volcengine.com/docs/82379/1494384', keyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey' },
+  { id: 'alibaba-qwen-plus', apiModel: 'qwen-plus', name: 'Qwen Plus', provider: '阿里云百炼', providerId: 'alibaba', category: 'chat', pricing: 'free-quota', quota: '北京地域新人按模型获赠免费额度，通常 100 万 Token、有效期 90 天', quotaLookup: '百炼免费额度页可查余量并开启“用完即停”', integration: 'ready', description: '通义千问主力语言模型，支持 OpenAI 兼容调用', docsUrl: 'https://help.aliyun.com/zh/model-studio/qwen-api-reference', keyUrl: 'https://bailian.console.aliyun.com/?tab=model#/api-key' },
+  { id: 'baidu-ernie-45-turbo', apiModel: 'ernie-4.5-turbo-128k', name: 'ERNIE 4.5 Turbo 128K', provider: '百度智能云千帆', providerId: 'baidu', category: 'chat', pricing: 'free-quota', quota: '新客开通可获赠调用额度，官方当前标注最高 100 万+ Token', quotaLookup: '千帆控制台资源额度与费用中心查看', integration: 'ready', description: '文心大模型长上下文版本，支持 OpenAI 兼容调用', docsUrl: 'https://cloud.baidu.com/doc/qianfan-api/s/3m7of64lb', keyUrl: 'https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application' },
   { id: 'sf-qwen3-8b', apiModel: 'Qwen/Qwen3-8B', name: 'Qwen3 8B', provider: 'SiliconFlow', providerId: 'siliconflow', category: 'chat', pricing: 'variable', quota: '部分模型长期免费，具体以模型页实时标记为准', quotaLookup: '控制台模型页/账单查看', integration: 'ready', description: '国内访问友好的 OpenAI 兼容推理服务', docsUrl: 'https://docs.siliconflow.cn/', keyUrl: 'https://cloud.siliconflow.cn/account/ak' },
-  { id: 'modelscope-qwen3', apiModel: 'Qwen/Qwen3-8B', name: 'Qwen3 8B', provider: 'ModelScope', providerId: 'modelscope', category: 'chat', pricing: 'free-quota', quota: '免费推理额度与并发限制按账号及模型变化', quotaLookup: '魔搭控制台查看', integration: 'catalog', description: '适合测试社区开源模型', docsUrl: 'https://modelscope.cn/docs/model-service/API-Inference/intro', keyUrl: 'https://modelscope.cn/my/myaccesstoken' },
+  { id: 'modelscope-qwen3', apiModel: 'Qwen/Qwen3-8B', name: 'Qwen3 8B', provider: 'ModelScope', providerId: 'modelscope', category: 'chat', pricing: 'free-quota', quota: '免费推理额度与并发限制按账号及模型变化', quotaLookup: '魔搭控制台查看', integration: 'ready', description: '适合测试社区开源模型', docsUrl: 'https://modelscope.cn/docs/model-service/API-Inference/intro', keyUrl: 'https://modelscope.cn/my/myaccesstoken' },
   { id: 'gemini-2.5-flash', apiModel: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'Google Gemini', providerId: 'gemini', category: 'chat', pricing: 'free-quota', quota: 'Free Tier 可用；限制按项目和模型计算', quotaLookup: 'AI Studio 项目页查看', integration: 'catalog', description: '多模态、长上下文与结构化输出', docsUrl: 'https://ai.google.dev/gemini-api/docs', keyUrl: 'https://aistudio.google.com/apikey' },
   { id: 'groq-gpt-oss', apiModel: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B', provider: 'Groq', providerId: 'groq', category: 'chat', pricing: 'free-quota', quota: '免费账户受 RPM、RPD、TPM 与 TPD 限制', quotaLookup: 'Groq Limits 页面查看精确剩余限制', integration: 'ready', description: '低延迟大语言模型推理', docsUrl: 'https://console.groq.com/docs/models', keyUrl: 'https://console.groq.com/keys' },
   { id: 'groq-gpt-oss-20b', apiModel: 'openai/gpt-oss-20b', name: 'GPT-OSS 20B', provider: 'Groq', providerId: 'groq', category: 'chat', pricing: 'free-quota', quota: 'Developer Plan 提供免费限流额度', quotaLookup: 'Groq Limits 页面查看 RPM、TPM 与每日限制', integration: 'ready', description: '速度优先的轻量推理模型', docsUrl: 'https://console.groq.com/docs/models', keyUrl: 'https://console.groq.com/keys' },
@@ -142,4 +177,4 @@ export const catalogModels: CatalogModel[] = [
   { id: 'cohere-rerank', apiModel: 'rerank-v3.5', name: 'Rerank 3.5', provider: 'Cohere', providerId: 'cohere', category: 'reranker', pricing: 'free-quota', quota: 'Trial Key 免费，Rerank 通常 10 RPM', quotaLookup: 'Cohere Dashboard 查看', integration: 'catalog', description: '语义搜索结果重排', docsUrl: 'https://docs.cohere.com/', keyUrl: 'https://dashboard.cohere.com/api-keys' },
 
   { id: 'seed3d', apiModel: 'doubao-seed3d-2-0-260328', name: 'Seed3D 2.0', provider: '火山方舟', providerId: 'ark', category: '3d', pricing: 'paid', quota: '按量计费', quotaLookup: '方舟费用中心查看', integration: 'ready', description: '图片转 3D', docsUrl: 'https://www.volcengine.com/docs/82379', keyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey' },
-]
+]).filter((model) => enabledProviderIds.has(model.providerId) && model.pricing === 'free')

@@ -4,7 +4,6 @@ import {
   Image,
   KeyRound,
   MessageSquareText,
-  Mic2,
   Sparkles,
   Video,
 } from 'lucide-react'
@@ -22,7 +21,6 @@ interface PortalSidebarProps {
   onMarketplace: (family?: ModelFamily) => void
   onStudio: (kind: GenerationKind) => void
   onLanguage: () => void
-  onAudio: () => void
   onHistory: () => void
   onSettings: () => void
 }
@@ -54,13 +52,12 @@ export function PortalSidebar({
   onMarketplace,
   onStudio,
   onLanguage,
-  onAudio,
   onHistory,
   onSettings,
 }: PortalSidebarProps) {
   return (
     <aside className="portal-sidebar" aria-label="主导航">
-      <div className="portal-brand"><span><Sparkles /></span><strong>小Y中转站</strong></div>
+      <div className="portal-brand"><span><Sparkles /></span><strong>XiaoY_ModelHub</strong></div>
 
       <div className="portal-nav-scroll">
         <section>
@@ -71,10 +68,8 @@ export function PortalSidebar({
         <section>
           <small>创作中心</small>
           <NavButton active={view === 'language'} icon={MessageSquareText} label="语言模型" onClick={onLanguage} />
-          <NavButton active={view === 'audio'} icon={Mic2} label="语音模型" onClick={onAudio} />
           <NavButton active={view === 'studio' && kind === 'image' && !historyActive} icon={Image} label="图像生成" onClick={() => onStudio('image')} />
           <NavButton active={view === 'studio' && kind === 'video' && !historyActive} icon={Video} label="视频生成" onClick={() => onStudio('video')} />
-          <NavButton active={view === 'studio' && kind === '3d' && !historyActive} icon={Boxes} label="3D 生成" onClick={() => onStudio('3d')} />
           <NavButton active={historyActive} badge={historyCount} icon={History} label="创作历史" onClick={onHistory} />
         </section>
 
@@ -85,7 +80,7 @@ export function PortalSidebar({
       </div>
 
       <footer>
-        <p>小Y中转站 · Local workspace</p>
+        <p>XiaoY_ModelHub · Local workspace</p>
       </footer>
     </aside>
   )

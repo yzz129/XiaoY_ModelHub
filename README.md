@@ -1,14 +1,13 @@
-# 小Y中转站
+# XiaoY_ModelHub
 
-一个基于 React、TypeScript 和 Vite 构建的本地 AI 图片、视频与 3D 内容生成工作台，支持火山方舟、Agnes AI、SiliconFlow、Cloudflare Workers AI 与 Pollinations 模型。
+一个基于 React、TypeScript 和 Vite 构建的本地多模型工作台，覆盖语言、语音、图片、视频、向量与 3D 模型，并可从 31 个服务商目录动态同步可用模型。
 
 ## 功能
 
-- 图片生成与编辑：除 Seedream、Agnes、Cloudflare 和 Pollinations 免费额度模型外，已接入 Nano Banana Pro、Seedream 5 Pro、Ideogram V4 Turbo、Wan Image Pro、Grok Imagine Pro 与 Qwen Image 等付费模型；兼容模型可上传参考图
-- 文生视频：支持方舟 Seedance、Agnes Video，以及 Pollinations Veo 3.1、Seedance 2.0、Wan Fast/Pro 和 Grok Video Pro；Pollinations 视频由本地服务持有长连接并直接保存到 `output/videos`
-- 语言模型工作台：支持 SiliconFlow、Groq、OpenRouter 和 Pollinations；除免费模型外，可直接切换 GPT-5.4、Claude Sonnet 5、Gemini 3.1 Pro Preview 和 DeepSeek V4 Pro
-- 语音模型工作台：支持 ElevenLabs Flash v2.5、Pollinations Qwen TTS 文字转语音，以及 Groq、Pollinations Whisper 音频转文字
-- 多服务商切换：在模型选择器中直接切换火山方舟或 Agnes AI，并按当前模型检查对应 API Key
+- 图片生成与编辑：仅展示 Agnes Image 免费模型，兼容模型可上传参考图
+- 文生视频：仅展示 Agnes Video 免费模型，并支持异步任务恢复
+- 语言模型工作台：仅展示 OpenRouter 的免费路由与 `:free` 模型
+- 双服务商设置：API 设置只保留 Agnes AI 与 OpenRouter
 - 默认模型广场首页：采用浅色紫色控制台布局，按语言、语音、视觉、向量和智能路由五大类展示常用模型，支持搜索、平台与费用筛选
 - 平台入口：每个目录模型都提供官方 API 文档、申请 Key、额度说明和剩余额度查询位置
 - 模型级提示词上限：根据所选模型动态使用最高字符数，切换模型时自动适配
@@ -27,23 +26,23 @@
 
 | 类型 | 可选模型 | 提示词上限 |
 | --- | --- | --- |
-| 图片 | Seedream、Agnes Image、Kolors、Cloudflare FLUX/SDXL；Pollinations 免费额度及 Nano Banana Pro、Seedream 5 Pro、Ideogram V4 Turbo、Wan Image Pro、Grok Imagine Pro、Qwen Image 付费模型 | 最高 32,000 字符，按模型动态调整 |
-| 视频 | 方舟 Seedance、Agnes Video；Pollinations Veo 3.1、Seedance 2.0、Wan Fast/Pro、Grok Video Pro | 最高 32,000 字符，按模型动态调整 |
-| 3D | Seed3D 2.0、Hyper3D Gen2 | 1,200 字符 |
+| 图片 | Agnes Image 2.0 Flash、Agnes Image 2.1 Flash | 最高 32,000 字符，按模型动态调整 |
+| 视频 | Agnes Video V2.0 | 最高 20,000 字符 |
+| 语言 | OpenRouter 免费路由与 `:free` 模型 | 按模型限制 |
 
-默认使用 `doubao-seedream-5-0-pro-260628` 和 `doubao-seedance-2-0-260128`。可通过 `VITE_ARK_IMAGE_MODEL` 与 `VITE_ARK_VIDEO_MODEL` 指定默认值；Agnes AI 模型可直接在工作台模型选择器中选择。
+默认使用 Agnes AI 免费图片和视频模型；语言工作台默认使用 OpenRouter 免费路由。
 
 ## 环境要求
 
 - Node.js 20 或更高版本
 - npm
-- 已开通对应模型权限的火山方舟或 Agnes AI API Key
+- Agnes AI API Key 和/或 OpenRouter API Key
 
 ## 安装
 
 ```bash
-git clone https://github.com/yzz129/image-video-generator.git
-cd image-video-generator
+git clone https://github.com/yzz129/XiaoY_ModelHub.git
+cd XiaoY_ModelHub
 npm install
 ```
 
@@ -62,32 +61,12 @@ Copy-Item .env.example .env.local
 在 `.env.local` 中填写配置：
 
 ```env
-VITE_ARK_API_KEY=你的火山方舟APIKey
-VITE_ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
-
-VITE_ARK_IMAGE_MODEL=doubao-seedream-5-0-pro-260628
-VITE_ARK_VIDEO_MODEL=doubao-seedance-2-0-260128
-VITE_ARK_3D_MODEL=doubao-seed3d-2-0-260328
-VITE_ARK_HYPER3D_MODEL=hyper3d-gen2-260112
-
 VITE_AGNES_API_KEY=你的AgnesAI APIKey
 VITE_AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
-
-VITE_SILICONFLOW_API_KEY=你的SiliconFlow APIKey
-VITE_SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
-
-VITE_CLOUDFLARE_API_TOKEN=你的Cloudflare Workers AI Token
-VITE_CLOUDFLARE_ACCOUNT_ID=你的Cloudflare Account ID
-
-VITE_POLLINATIONS_API_KEY=你的Pollinations APIKey
-VITE_POLLINATIONS_BASE_URL=https://gen.pollinations.ai
-
-VITE_GROQ_API_KEY=你的Groq APIKey
 VITE_OPENROUTER_API_KEY=你的OpenRouter APIKey
-VITE_ELEVENLABS_API_KEY=你的ElevenLabs APIKey
 ```
 
-只使用其中一个服务商时，其他服务商的 API Key 可以留空；3D 生成目前仍使用火山方舟。模型中心还识别 `VITE_MODELSCOPE_API_KEY`、`VITE_GEMINI_API_KEY`、`VITE_GROQ_API_KEY`、`VITE_OPENROUTER_API_KEY`、`VITE_HUGGINGFACE_TOKEN`、`VITE_DASHSCOPE_API_KEY`、`VITE_POLLINATIONS_API_KEY`、`VITE_ELEVENLABS_API_KEY`、`VITE_JINA_API_KEY` 和 `VITE_COHERE_API_KEY`，完整示例见 `.env.example`。
+只使用其中一个服务商时，另一个 API Key 可以留空。
 
 启动开发服务：
 
@@ -106,50 +85,26 @@ npm run dev
 - Agnes 官方说明核心模型可长期免费使用，但免费默认档并不是无限请求：视频接口实际限制为每分钟 1 次。工作台会在创建视频后等待 65 秒再查询，并保持至少 65 秒的查询间隔。
 - 状态查询遇到 HTTP 429 时，工作台会把它识别为临时频率限制，保留远端任务并自动等待后继续查询，不会立即把任务判为失败；只有响应正文明确说明额度或余额耗尽时才提示额度不足。
 - Agnes Video 当前在界面中开放文生视频。官方图生视频接口要求输入公开可访问的图片 URL，而本地上传组件生成的是 Data URI，因此切换到 Agnes Video 时会自动切回文字生成模式。
-- 工作台设置会分别显示火山方舟和 Agnes AI 的密钥连接状态。
+- 工作台设置会分别显示 Agnes AI 和 OpenRouter 的密钥连接状态。
 
 接口参数与模型能力以 [Agnes AI 官方文档](https://agnes-ai.com/zh-Hans/docs/overview) 为准；免费范围与限制参见 [常见问题](https://agnes-ai.com/zh-Hans/docs/faqs) 和 [Token 方案及 RPM 限制](https://agnes-ai.com/zh-Hans/docs/tokenplan)。
 
 ## 模型广场与费用标记
 
-应用启动后默认进入模型广场，展示 SiliconFlow、ModelScope、Gemini、Groq、OpenRouter、Cloudflare Workers AI、Hugging Face、阿里云百炼、Pollinations、火山方舟、Agnes AI、ElevenLabs、Jina AI 和 Cohere 的常用模型。界面采用浅色紫色后台视觉、分组侧边导航、顶部分类、左侧筛选和四列模型卡片布局；图片、视频与 3D 创作页使用同一设计体系，创作参数区只保留常用生成模型。
+应用启动后只展示两类免费模型：
 
-模型广场统一为五类：
+- `Agnes AI`：图片与视频生成。
+- `OpenRouter`：免费路由与 API 模型 ID 以 `:free` 结尾的语言模型。
 
-- `语言模型`：对话、推理与多模态理解模型。
-- `语音模型`：语音识别与语音合成模型。
-- `视觉模型`：图片、视频与 3D 生成模型。
-- `向量模型`：Embedding 与 Reranker 模型。
-- `智能路由模型`：根据可用性自动选择模型的路由服务。
+目录同步完成后仍会再次按服务商和 `完全免费` 标记过滤，避免付费模型被远端动态目录重新加入。免费服务通常仍有 RPM、RPD、每日时长或并发限制。
 
-每一类都可继续按模型名称、API 模型 ID、服务平台和费用类型筛选；带有“已接入”标记的模型可通过“在工作台使用”直接进入对应创作页面并选中该模型。精简后的左侧导航仅保留模型广场、图像生成、视频生成、3D 生成、创作历史和 API 设置。
+## 在页面中保存 API Key
 
-费用标记含义：
+左侧“API 与设置”只提供 Agnes AI 与 OpenRouter 两个平台。浏览器保存的凭据优先于 `.env.local`，保存后无需重启开发服务，模型目录同步、额度查询和工作台请求都会读取最新值。
 
-- `完全免费`：模型本身无需购买额度，但通常仍有 RPM、RPD、每日时长或并发限制。
-- `有免费额度`：存在每日、每月、新用户或试用额度；用完后可能停止服务或转为计费。
-- `付费`：正常调用按量计费，控制台活动赠送额度不视为长期免费。
-- `按模型计费`：同一平台同时存在免费和付费模型，应以模型页的实时标记为准。
+凭据仅保存在当前浏览器的 `localStorage`，适合个人本地使用，不等同于安全密钥库。公开部署必须迁移到服务端加密存储与代理调用，不能把真实 Key 暴露给前端访问者。
 
-“剩余额度”只有在平台提供账户 API 时才能自动读取。Cloudflare、Groq、Gemini、百炼等平台主要要求在控制台查看；模型中心会显示对应查询位置，不会用静态数字冒充账户实时余额。
-
-Pollinations 付费模型会消耗已充值 Pollen，工作台可通过 `/account/balance` 显示当前余额。视频价格通常按生成秒数计算，音频或参考图可能另行计费；界面显示的是接入时的官方模型目录价格提示，实际扣费始终以请求时的 Pollinations 返回结果为准。HTTP 402 会明确显示为付费余额不足。
-
-Pollinations 参考图会先通过官方 `/upload` 接口生成临时公开地址，再提交视频。视频请求本身运行在 Vite 本地服务的可恢复任务中，浏览器刷新不会取消上游下载；完成后直接写入 `output/videos`，避免再次下载和重复计费。
-
-配置 `VITE_OPENROUTER_API_KEY`、`VITE_POLLINATIONS_API_KEY` 或 `VITE_ELEVENLABS_API_KEY` 后，对应模型卡片会出现“查询额度”按钮，分别通过 OpenRouter Credits API、Pollinations `/account/balance` 和 ElevenLabs Subscription API 显示实时剩余余额、Pollen 或字符数。
-
-当前可在创作工作台直接调用的第三方新增模型：
-
-- SiliconFlow `Qwen/Qwen3-8B`；Groq GPT-OSS 120B/20B、Llama 3.1 8B；OpenRouter 自动免费路由以及 Ling 3.0 Flash、Laguna S 2.1、North Mini Code、Nemotron 3 Ultra、Gemma 4 31B 的 `:free` 路由；Pollinations OpenAI Fast、Mistral Small 3.2、GPT-OSS 20B：语言模型多轮对话。
-- ElevenLabs `eleven_flash_v2_5`：文字转语音；Groq Whisper Large V3/V3 Turbo 与 Pollinations Whisper：音频转文字，免费档单文件最大 25MB。
-- SiliconFlow `Kwai-Kolors/Kolors`：`POST /v1/images/generations`。
-- Cloudflare Workers AI `@cf/black-forest-labs/flux-1-schnell` 与 `@cf/bytedance/stable-diffusion-xl-lightning`：需要 API Token 和 Account ID。
-- Pollinations Sana、Kontext、GPT Image Mini、FLUX Klein、Nova Canvas、Z-Image、FLUX 和 Qwen Image 3.0 Pro 社区模型：使用统一的 `POST /v1/images/generations` 接口，需要配置 `VITE_POLLINATIONS_API_KEY`。支持图片输入的模型会把上传图片作为 `image` 参数提交。
-
-截至 2026-07-29，Pollinations 官方 `qwen-image` 已标记为 `paid_only`，只可使用付费余额；工作台已把它从“有免费额度”修正为“付费”。视频列表中 Veo、Seedance、Wan、Grok Video 与 P-Video 同样为 `paid_only`；只有 Nova Reel 当前未标记 `paid_only`，因此在模型广场按“有免费额度”展示，但其同步 MP4 接口尚未接入可恢复的视频队列，不会显示“已接入”。
-
-模型广场中的“目录”条目已经完成分类、费用说明和配置检测，但尚未接入当前图片/视频画布的专用输入输出流程；“已接入”条目可以直接生成。模型 ID 和免费策略会变化，使用前请通过卡片中的官方文档确认。
+配置 `VITE_OPENROUTER_API_KEY` 后，OpenRouter 模型卡片可通过 Credits API 查询当前账户余额。
 
 ## 图片转 3D
 
@@ -201,7 +156,7 @@ npm run preview
 
 - 不要提交 `.env.local`。
 - 不要将当前实现直接公开部署。
-- 公开部署时，应将火山方舟和 Agnes AI 请求迁移到服务端代理，并仅在服务端保存 API Key。
+- 公开部署时，应将 Agnes AI 和 OpenRouter 请求迁移到服务端代理，并仅在服务端保存 API Key。
 - 如果 API Key 曾出现在截图、日志或提交记录中，请立即在对应服务商控制台作废并重新生成。
 
 ## 主要目录
@@ -219,4 +174,4 @@ src/
 
 ## 注意
 
-调用图片、视频或 3D 模型可能产生费用。实际可用模型、调用额度和并发限制以火山方舟或 Agnes AI 控制台中的账号配置为准。
+当前界面仅展示 Agnes AI 与 OpenRouter 标记为免费的模型；免费模型仍可能有 RPM、每日用量或并发限制，具体以服务商控制台为准。

@@ -3,18 +3,16 @@ export interface ProviderQuota {
   detail?: string
 }
 
-const quotaKeys: Record<string, string> = {
-  openrouter: import.meta.env.VITE_OPENROUTER_API_KEY ?? '',
-  pollinations: import.meta.env.VITE_POLLINATIONS_API_KEY ?? '',
-  elevenlabs: import.meta.env.VITE_ELEVENLABS_API_KEY ?? '',
-}
+import { getProviderCredentials } from './providerCredentials'
+
+const queryableProviders = new Set(['openrouter', 'pollinations', 'elevenlabs'])
 
 export function canQueryQuota(providerId: string) {
-  return Boolean(quotaKeys[providerId])
+  return queryableProviders.has(providerId) && Boolean(getProviderCredentials(providerId).apiKey)
 }
 
 export async function queryProviderQuota(providerId: string): Promise<ProviderQuota> {
-  const apiKey = quotaKeys[providerId]
+  const apiKey = getProviderCredentials(providerId).apiKey
   if (!apiKey) throw new Error('请先配置该平台 API Key')
   const response = await fetch('/__provider_quota', {
     method: 'POST',
