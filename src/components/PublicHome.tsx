@@ -10,6 +10,7 @@ import {
   Sparkles,
   Video,
 } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import { catalogModels } from '../data/providerCatalog'
 import { ModelCenter } from './ModelCenter'
 
@@ -60,12 +61,79 @@ const capabilities = [
   },
 ]
 
+const binaryTokens = ['0', '1', '01', '10', '0101', '1010']
+
+function BinaryPointerTrail() {
+  const layerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const layer = layerRef.current
+    if (!layer) return
+
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    let lastEmit = 0
+    let lastX = 0
+    let lastY = 0
+
+    function spawnParticle(x: number, y: number, energy = 1) {
+      if (reducedMotion.matches || !layer) return
+
+      while (layer.childElementCount >= 32) layer.firstElementChild?.remove()
+
+      const particle = document.createElement('span')
+      const angle = Math.random() * Math.PI * 2
+      const distance = (24 + Math.random() * 42) * energy
+      particle.className = 'public-binary-particle'
+      particle.textContent = binaryTokens[Math.floor(Math.random() * binaryTokens.length)]
+      particle.style.left = `${x}px`
+      particle.style.top = `${y}px`
+      particle.style.setProperty('--binary-x', `${Math.cos(angle) * distance}px`)
+      particle.style.setProperty('--binary-y', `${Math.sin(angle) * distance - 18}px`)
+      particle.style.setProperty('--binary-rotate', `${-14 + Math.random() * 28}deg`)
+      particle.style.setProperty('--binary-duration', `${720 + Math.random() * 360}ms`)
+      particle.dataset.tone = Math.random() > .78 ? 'ice' : 'violet'
+      particle.addEventListener('animationend', () => particle.remove(), { once: true })
+      layer.appendChild(particle)
+    }
+
+    function handlePointerMove(event: PointerEvent) {
+      const now = event.timeStamp
+      const minInterval = event.pointerType === 'touch' ? 90 : 64
+      const minDistance = event.pointerType === 'touch' ? 24 : 16
+      if (now - lastEmit < minInterval || Math.hypot(event.clientX - lastX, event.clientY - lastY) < minDistance) return
+
+      lastEmit = now
+      lastX = event.clientX
+      lastY = event.clientY
+      spawnParticle(event.clientX, event.clientY, event.pointerType === 'touch' ? .8 : .68)
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const particleCount = event.pointerType === 'touch' ? 5 : 4
+      for (let index = 0; index < particleCount; index += 1) {
+        spawnParticle(event.clientX, event.clientY, 1 + index * .08)
+      }
+    }
+
+    window.addEventListener('pointermove', handlePointerMove, { passive: true })
+    window.addEventListener('pointerdown', handlePointerDown, { passive: true })
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerdown', handlePointerDown)
+      layer.replaceChildren()
+    }
+  }, [])
+
+  return <div ref={layerRef} className="public-binary-layer" aria-hidden="true" />
+}
+
 export function PublicHome({ onRequireAuth }: PublicHomeProps) {
   function browseModels() {
     document.getElementById('public-models')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   return <div className="public-home">
+    <BinaryPointerTrail />
     <header className="public-nav">
       <div className="public-nav-inner">
         <a className="public-brand" href="#top" aria-label="XiaoY ModelHub 首页">

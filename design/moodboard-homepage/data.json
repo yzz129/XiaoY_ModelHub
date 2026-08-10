@@ -45,7 +45,7 @@
       "motion": {
         "type": "短促入场与轻微视差",
         "intensity": 4,
-        "description": "标题按行轻抬升，棱镜图形只做 2-4px 呼吸和低幅视差；按钮反馈干净，支持 reduced-motion。"
+      "description": "标题按行轻抬升，棱镜图形只做 2-4px 呼吸和低幅视差；鼠标移动或点击时在触点附近短暂浮出 0、1、01、10 等二进制微粒，低频生成并支持 reduced-motion。"
       },
       "color": {
         "palette": ["#FCFBFF", "#7C3AED", "#A78BFA", "#2B1A48"],
@@ -201,7 +201,7 @@
       "motion": {
         "type": "纵向顺滑滚动",
         "intensity": 3,
-        "description": "关闭视差和复杂跟随动画；按钮触控反馈不超过 160ms，列表避免布局跳动。"
+      "description": "关闭视差和复杂跟随动画；轻触或滑动时只在触点附近弹出少量二进制微粒，自动消散且不阻塞滚动；按钮触控反馈不超过 160ms。"
       },
       "color": {
         "palette": ["#FCFBFF", "#F3EEFF", "#7C3AED", "#2B1A48"],
