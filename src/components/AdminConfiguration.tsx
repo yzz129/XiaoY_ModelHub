@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { KeyRound, Plus, Save, Trash2 } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, Plus, Save, Trash2 } from 'lucide-react'
 import {
   categoryLabels,
   pricingLabels,
@@ -11,6 +11,7 @@ import {
   createAdminCustomModel,
   deleteAdminCustomModel,
   deleteGlobalCredential,
+  getAdminCredentialSecret,
   getAdminCredentials,
   getAdminCustomModels,
   saveGlobalCredential,
@@ -164,11 +165,11 @@ export function AdminConfiguration({ mode }: AdminConfigurationProps) {
       </section>
       {message && <p className="admin-config-message" role="status">{message}</p>}
       <section className="admin-config-card">
-        <header><div><KeyRound /><span><h2>全局凭据</h2><p>后台统一提供给所有用户的服务商密钥。</p></span></div><b>{global.length}</b></header>
+        <header><div><KeyRound /><span><h2>全局凭据</h2><p>后台统一提供给所有用户的服务商密钥，点击眼睛可查看完整 Key。</p></span></div><b>{global.length}</b></header>
         <CredentialTable items={global} onDelete={removeGlobal} />
       </section>
       <section className="admin-config-card">
-        <header><div><KeyRound /><span><h2>用户个人凭据</h2><p>仅显示遮罩和配置状态，完整 Key 永不下发到浏览器。</p></span></div><b>{personal.length}</b></header>
+        <header><div><KeyRound /><span><h2>用户个人凭据</h2><p>默认遮罩显示，管理员点击眼睛后可查看完整 Key。</p></span></div><b>{personal.length}</b></header>
         <CredentialTable items={personal} />
       </section>
     </div>
@@ -204,7 +205,35 @@ function CredentialTable({
   items: AdminCredential[]
   onDelete?: (item: AdminCredential) => void
 }) {
+  const [revealedKeys, setRevealedKeys] = useState<Record<string, string>>({})
+  const [loadingId, setLoadingId] = useState('')
+  const [error, setError] = useState('')
+
+  async function toggleSecret(item: AdminCredential) {
+    if (revealedKeys[item.id] !== undefined) {
+      setRevealedKeys((current) => {
+        const next = { ...current }
+        delete next[item.id]
+        return next
+      })
+      return
+    }
+    setLoadingId(item.id)
+    setError('')
+    try {
+      const result = await getAdminCredentialSecret(item.scope, item.id)
+      setRevealedKeys((current) => ({ ...current, [item.id]: result.apiKey }))
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : '完整 API Key 加载失败')
+    } finally {
+      setLoadingId('')
+    }
+  }
+
   return <div className="admin-table"><table><thead><tr><th>服务商</th><th>用户</th><th>API Key</th><th>Account ID</th><th>更新时间</th><th /></tr></thead><tbody>
-    {items.map((item) => <tr key={item.id}><td><strong>{item.providerId}</strong><small>{item.scope === 'global' ? '全局' : '个人'}</small></td><td><strong>{item.displayName || '全部用户'}</strong><small>{item.email || '全局后备凭据'}</small></td><td><code>{item.maskedApiKey}</code></td><td>{item.accountId || '—'}</td><td>{dateTime(item.updatedAt)}</td><td><div className="table-actions">{onDelete && <button className="icon-danger" title="删除" onClick={() => void onDelete(item)}><Trash2 /></button>}</div></td></tr>)}
-  </tbody></table></div>
+    {items.map((item) => {
+      const revealed = revealedKeys[item.id] !== undefined
+      return <tr key={item.id}><td><strong>{item.providerId}</strong><small>{item.scope === 'global' ? '全局' : '个人'}</small></td><td><strong>{item.displayName || '全部用户'}</strong><small>{item.email || '全局后备凭据'}</small></td><td><div className="credential-secret"><code>{revealed ? revealedKeys[item.id] : item.maskedApiKey}</code><button type="button" disabled={loadingId === item.id} title={revealed ? '隐藏完整 API Key' : '显示完整 API Key'} aria-label={revealed ? '隐藏完整 API Key' : '显示完整 API Key'} onClick={() => void toggleSecret(item)}>{revealed ? <EyeOff /> : <Eye />}</button></div></td><td>{item.accountId || '—'}</td><td>{dateTime(item.updatedAt)}</td><td><div className="table-actions">{onDelete && <button className="icon-danger" title="删除" onClick={() => void onDelete(item)}><Trash2 /></button>}</div></td></tr>
+    })}
+  </tbody></table>{error && <p className="admin-config-inline-error" role="alert">{error}</p>}</div>
 }

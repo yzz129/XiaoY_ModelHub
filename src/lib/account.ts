@@ -162,6 +162,12 @@ export async function getAdminCredentials() {
   return requestJson<{ personal: AdminCredential[], global: AdminCredential[] }>('/api/admin/credentials')
 }
 
+export async function getAdminCredentialSecret(scope: AdminCredential['scope'], id: string) {
+  return requestJson<{ apiKey: string }>(
+    `/api/admin/credentials/${encodeURIComponent(scope)}/${encodeURIComponent(id)}/secret`,
+  )
+}
+
 export async function saveGlobalCredential(providerId: string, credentials: ProviderCredentials) {
   return requestJson<{ providerId: string, updatedAt: number }>(`/api/admin/global-credentials/${encodeURIComponent(providerId)}`, {
     method: 'PUT',

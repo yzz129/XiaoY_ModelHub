@@ -1,0 +1,11 @@
+{
+  "name": "XiaoY ModelHub - AI 模型聚合与创作平台",
+  "short_name": "XiaoY ModelHub",
+  "description": "聚合主流 AI 模型的多模态创作平台",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f7fb",
+  "theme_color": "#7437f5"
+}

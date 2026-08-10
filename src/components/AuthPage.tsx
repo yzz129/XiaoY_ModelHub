@@ -36,13 +36,19 @@ export function AuthPage({ onAuthenticated }: AuthPageProps) {
       <div className="auth-brand"><Sparkles /> XiaoY_ModelHub</div>
       <div>
         <small>ONE ACCOUNT · ALL MODELS</small>
-        <h1>你的 AI 模型与创作工作台</h1>
-        <p>登录后使用语言、图片、视频、语音与 3D 模型，创作记录会安全归档到你的账户。</p>
+        <h1>一站式 AI 模型聚合与创作工作台</h1>
+        <p>XiaoY ModelHub 聚合 OpenRouter、Pollinations 与 Agnes AI 等服务，让你在一个平台使用 GPT、Claude、Gemini、DeepSeek 等热门 AI 模型。</p>
+        <div className="auth-seo-summary">
+          <h2>覆盖文本、图片、视频、语音和 3D 的多模态 AI 工具</h2>
+          <p>支持 AI 对话与写作、AI 编程、文生图、图生图、AI 视频生成、语音合成、语音转文字和 3D 模型生成，创作记录可跨设备安全归档。</p>
+        </div>
       </div>
       <div className="auth-feature-row">
         <span>2,000+ 模型目录</span>
-        <span>Cloudflare 全球部署</span>
-        <span>跨设备记录</span>
+        <span>AI 对话与写作</span>
+        <span>AI 图片生成</span>
+        <span>AI 视频生成</span>
+        <span>语音与 3D 创作</span>
       </div>
     </section>
     <section className="auth-card-wrap">

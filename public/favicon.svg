@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="XiaoY ModelHub">
+  <defs>
+    <linearGradient id="g" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#965dff"/>
+      <stop offset="1" stop-color="#5424cf"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="17" fill="url(#g)"/>
+  <path d="M17 18h8l7 10 7-10h8L36 33l11 13h-8l-7-8-7 8h-8l11-13L17 18Z" fill="#fff"/>
+</svg>

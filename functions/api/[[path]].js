@@ -426,6 +426,24 @@ async function adminCredentialList(env) {
   return { personal, global }
 }
 
+async function adminCredentialSecret(env, scope, id) {
+  const table = scope === 'global'
+    ? 'global_provider_credentials'
+    : 'user_provider_credentials'
+  const row = await env.DB.prepare(`
+    SELECT encrypted_payload, iv
+    FROM ${table}
+    WHERE id = ?
+  `).bind(id).first()
+  if (!row) return undefined
+  const credentials = await decryptCredentialPayload(
+    env.KEY_ENCRYPTION_SECRET,
+    row.encrypted_payload,
+    row.iv,
+  )
+  return { apiKey: credentials.apiKey || '' }
+}
+
 async function saveGlobalCredential(env, adminId, providerId, body) {
   const apiKey = cleanText(body.apiKey, 8_000).trim()
   const accountId = cleanText(body.accountId, 500).trim()
@@ -628,6 +646,15 @@ export async function onRequest(context) {
     }
     if (path === '/api/admin/credentials' && request.method === 'GET') {
       return json(await adminCredentialList(env))
+    }
+    const credentialSecretMatch = path.match(/^\/api\/admin\/credentials\/(personal|global)\/([^/]+)\/secret$/)
+    if (credentialSecretMatch && request.method === 'GET') {
+      const secret = await adminCredentialSecret(
+        env,
+        credentialSecretMatch[1],
+        decodeURIComponent(credentialSecretMatch[2]),
+      )
+      return secret ? json(secret) : errorResponse('API Key 不存在', 404)
     }
     const globalCredentialMatch = path.match(/^\/api\/admin\/global-credentials\/([^/]+)$/)
     if (globalCredentialMatch) {
