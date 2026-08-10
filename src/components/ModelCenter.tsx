@@ -30,6 +30,7 @@ export type ModelFamily = 'language' | 'speech' | 'vision' | 'vector' | 'router'
 interface ModelCenterProps {
   open?: boolean
   embedded?: boolean
+  guest?: boolean
   initialFamily?: ModelFamily
   onClose?: () => void
   onUseModel?: (model: CatalogModel) => void
@@ -64,6 +65,7 @@ function modelFamily(model: CatalogModel): ModelFamily {
 export function ModelCenter({
   open = false,
   embedded = false,
+  guest = false,
   initialFamily = 'language',
   onClose,
   onUseModel,
@@ -175,7 +177,7 @@ export function ModelCenter({
           </button>
         )}
         {embedded
-          ? <div className="marketplace-account"><span>XiaoY_ModelHub 已连接</span><b>XY</b></div>
+          ? <div className={`marketplace-account ${guest ? 'guest' : ''}`}><span>{guest ? '访客浏览 · 登录后使用' : 'XiaoY_ModelHub 已连接'}</span><b>{guest ? '访' : 'XY'}</b></div>
           : <button type="button" className="marketplace-close" aria-label="关闭模型广场" onClick={onClose}><X /></button>}
       </header>
 
@@ -299,13 +301,13 @@ export function ModelCenter({
           </div>
 
           <div className="marketplace-legend">
-            <span><CheckCircle2 />所有模型都可点击使用；没有 Key 时会引导到 API 设置</span>
-            <span><CircleDollarSign />动态额度优先查询 API，其余提供控制台入口</span>
+            <span><CheckCircle2 />{guest ? '所有模型均可公开浏览，点击使用时登录' : '所有模型都可点击使用；没有 Key 时会引导到 API 设置'}</span>
+            <span><CircleDollarSign />{guest ? '登录后可配置 API Key、查询额度并开始创作' : '动态额度优先查询 API，其余提供控制台入口'}</span>
           </div>
 
           <div className="catalog-grid">
             {models.slice(0, displayLimit).map((model) => {
-              const configured = isProviderConfigured(model.providerId)
+              const configured = !guest && isProviderConfigured(model.providerId)
               const quotaText = quotaByProvider[model.providerId]?.summary
                 ?? quotaError[model.providerId]
                 ?? model.quotaLookup
@@ -331,7 +333,7 @@ export function ModelCenter({
                   <div className="catalog-tags">
                     <span>{categoryLabels[model.category]}</span>
                     <span className={configured ? 'configured' : ''}>
-                      {configured ? '后端 Key 已配置' : '需在账号中配置 API Key'}
+                      {guest ? '登录后配置 API Key' : configured ? '后端 Key 已配置' : '需在账号中配置 API Key'}
                     </span>
                   </div>
 
@@ -344,10 +346,10 @@ export function ModelCenter({
                   <div className="catalog-links">
                     {onUseModel && (
                       <button type="button" className="use-model" onClick={() => onUseModel(model)}>
-                        {configured ? '使用此模型' : '配置后使用'}
+                        {guest ? '登录后使用' : configured ? '使用此模型' : '配置后使用'}
                       </button>
                     )}
-                    {canQueryQuota(model.providerId) && (
+                    {!guest && canQueryQuota(model.providerId) && (
                       <button
                         type="button"
                         onClick={() => void refreshQuota(model.providerId)}

@@ -4,9 +4,10 @@ import { loginAccount, registerAccount, type AccountUser } from '../lib/account'
 
 interface AuthPageProps {
   onAuthenticated: (user: AccountUser) => void
+  onCancel?: () => void
 }
 
-export function AuthPage({ onAuthenticated }: AuthPageProps) {
+export function AuthPage({ onAuthenticated, onCancel }: AuthPageProps) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
@@ -72,6 +73,7 @@ export function AuthPage({ onAuthenticated }: AuthPageProps) {
         {error && <p className="auth-error">{error}</p>}
         <button type="submit" disabled={loading}>{loading ? '处理中…' : mode === 'login' ? '登录' : '注册并登录'} <ArrowRight /></button>
         <footer>{mode === 'login' ? '还没有账户？' : '已经有账户？'}<button type="button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError('') }}>{mode === 'login' ? '立即注册' : '返回登录'}</button></footer>
+        {onCancel && <button type="button" className="auth-return-home" onClick={onCancel}>暂不登录，返回首页</button>}
       </form>
     </section>
   </main>

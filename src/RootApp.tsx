@@ -3,6 +3,7 @@ import { LogOut, Save, ShieldCheck, UserRound, X } from 'lucide-react'
 import App from './App'
 import { AdminDashboard } from './components/AdminDashboard'
 import { AuthPage } from './components/AuthPage'
+import { PublicHome } from './components/PublicHome'
 import { getAccountCredentials, getCurrentAccount, logoutAccount, updateAccountProfile, type AccountUser } from './lib/account'
 import { applyProviderConfigurationStatus, clearLegacyBrowserCredentials } from './lib/providerCredentials'
 import './admin.css'
@@ -12,6 +13,7 @@ export default function RootApp() {
   const [loading, setLoading] = useState(true)
   const [route, setRoute] = useState(() => window.location.hash)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [authOpen, setAuthOpen] = useState(false)
 
   useEffect(() => {
     clearLegacyBrowserCredentials()
@@ -39,13 +41,17 @@ export default function RootApp() {
 
   async function authenticated(nextUser: AccountUser) {
     setUser(nextUser)
+    setAuthOpen(false)
     clearLegacyBrowserCredentials()
     const remote = await getAccountCredentials().catch(() => ({ credentials: [], configuredProviders: [] }))
     applyProviderConfigurationStatus(remote.configuredProviders)
   }
 
   if (loading) return <main className="account-loading"><span /><strong>正在连接工作台…</strong></main>
-  if (!user) return <AuthPage onAuthenticated={(nextUser) => { void authenticated(nextUser) }} />
+  if (!user) {
+    if (authOpen) return <AuthPage onAuthenticated={(nextUser) => { void authenticated(nextUser) }} onCancel={() => setAuthOpen(false)} />
+    return <PublicHome onRequireAuth={() => setAuthOpen(true)} />
+  }
   if (route === '#admin' && user.role === 'admin') {
     return <AdminDashboard user={user} onBack={() => { window.location.hash = '' }} onLogout={() => void logout()} />
   }
