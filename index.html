@@ -17,6 +17,30 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="manifest" href="/site.webmanifest" />
     <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+    <style>
+      html, body { margin: 0; min-width: 320px; min-height: 100%; background: #fcfbff; }
+      #app-boot {
+        position: fixed;
+        z-index: 9999;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        color: #291844;
+        background: radial-gradient(circle at 50% 35%, #f0e7ff 0, transparent 34%), #fcfbff;
+        font-family: "Microsoft YaHei", system-ui, sans-serif;
+        text-align: center;
+      }
+      #app-boot > div { display: grid; justify-items: center; gap: 12px; }
+      #app-boot b { font-size: 20px; }
+      #app-boot p { margin: 0; color: #766a87; font-size: 13px; }
+      #app-boot i { width: 34px; height: 34px; border: 3px solid #e5d8fb; border-top-color: #7c3aed; border-radius: 50%; animation: app-boot-spin .8s linear infinite; }
+      #app-boot button { display: none; min-height: 42px; margin-top: 5px; padding: 0 20px; border: 0; border-radius: 999px; color: #fff; background: #7c3aed; font: 700 13px inherit; cursor: pointer; }
+      #app-boot.failed i { display: none; }
+      #app-boot.failed button { display: inline-flex; align-items: center; }
+      @keyframes app-boot-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { #app-boot i { animation: none; } }
+    </style>
 
     <meta property="og:type" content="website" />
     <meta property="og:locale" content="zh_CN" />
@@ -60,13 +84,38 @@
     <title>XiaoY ModelHub｜AI 模型聚合与多模态创作平台</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main id="app-boot" aria-live="polite">
+        <div>
+          <i aria-hidden="true"></i>
+          <b>XiaoY ModelHub</b>
+          <p id="app-boot-message">正在打开创作空间…</p>
+          <button type="button" onclick="location.replace(location.pathname + '?reload=' + Date.now())">重新加载</button>
+        </div>
+      </main>
+    </div>
     <noscript>
       <main>
         <h1>XiaoY ModelHub AI 模型聚合与创作平台</h1>
         <p>聚合 OpenRouter、Pollinations、Agnes AI 等服务，支持 AI 对话与写作、文生图、图生图、AI 视频生成、语音合成、语音转文字和 3D 模型生成。首页和模型广场无需登录，使用具体模型时再登录。</p>
       </main>
     </noscript>
+    <script>
+      (() => {
+        const showLoadError = () => {
+          const boot = document.getElementById('app-boot')
+          if (!boot) return
+          boot.classList.add('failed')
+          const message = document.getElementById('app-boot-message')
+          if (message) message.textContent = '页面加载遇到问题，请重新加载一次。'
+        }
+        window.setTimeout(showLoadError, 8000)
+        window.addEventListener('error', (event) => {
+          if (event.target instanceof HTMLScriptElement) showLoadError()
+        }, true)
+        window.addEventListener('unhandledrejection', showLoadError)
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
