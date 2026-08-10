@@ -63,9 +63,6 @@ export function BinaryBubbleTrail() {
     const debris: Debris[] = []
     let animationFrame = 0
     let previousFrame = performance.now()
-    let lastEmit = 0
-    let lastX = 0
-    let lastY = 0
     let disposed = false
 
     function elementCardAt(x: number, y: number) {
@@ -340,18 +337,6 @@ export function BinaryBubbleTrail() {
       ensureAnimation()
     }
 
-    function handlePointerMove(event: PointerEvent) {
-      const now = event.timeStamp
-      const minInterval = event.pointerType === 'touch' ? 170 : 112
-      const minDistance = event.pointerType === 'touch' ? 38 : 30
-      if (now - lastEmit < minInterval || Math.hypot(event.clientX - lastX, event.clientY - lastY) < minDistance) return
-
-      lastEmit = now
-      lastX = event.clientX
-      lastY = event.clientY
-      spawnBubble(event.clientX, event.clientY, event.pointerType === 'touch' ? .9 : .82)
-    }
-
     function handlePointerDown(event: PointerEvent) {
       for (let index = 0; index < 3; index += 1) {
         spawnBubble(
@@ -363,11 +348,9 @@ export function BinaryBubbleTrail() {
       }
     }
 
-    window.addEventListener('pointermove', handlePointerMove, { passive: true })
     window.addEventListener('pointerdown', handlePointerDown, { passive: true })
     return () => {
       disposed = true
-      window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerdown', handlePointerDown)
       if (animationFrame) cancelAnimationFrame(animationFrame)
       layer.replaceChildren()
