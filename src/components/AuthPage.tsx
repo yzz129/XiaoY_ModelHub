@@ -1,11 +1,20 @@
 import { useState } from 'react'
-import { ArrowRight, LockKeyhole, Mail, Sparkles, UserRound } from 'lucide-react'
+import { ArrowRight, AudioLines, Box, Image, LockKeyhole, Mail, MessageSquareText, Sparkles, UserRound, Video } from 'lucide-react'
 import { loginAccount, registerAccount, type AccountUser } from '../lib/account'
+import { BinaryBubbleTrail } from './BinaryBubbleTrail'
 
 interface AuthPageProps {
   onAuthenticated: (user: AccountUser) => void
   onCancel?: () => void
 }
+
+const authCapabilities = [
+  { icon: MessageSquareText, label: '对话' },
+  { icon: Image, label: '图像' },
+  { icon: Video, label: '视频' },
+  { icon: AudioLines, label: '声音' },
+  { icon: Box, label: '3D' },
+]
 
 export function AuthPage({ onAuthenticated, onCancel }: AuthPageProps) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
@@ -33,30 +42,34 @@ export function AuthPage({ onAuthenticated, onCancel }: AuthPageProps) {
   }
 
   return <main className="auth-page">
+    <BinaryBubbleTrail />
     <section className="auth-story">
-      <div className="auth-brand"><Sparkles /> XiaoY_ModelHub</div>
-      <div>
-        <small>ONE ACCOUNT · ALL MODELS</small>
-        <h1>一站式 AI 模型聚合与创作工作台</h1>
-        <p>XiaoY ModelHub 聚合 OpenRouter、Pollinations 与 Agnes AI 等服务，让你在一个平台使用 GPT、Claude、Gemini、DeepSeek 等热门 AI 模型。</p>
-        <div className="auth-seo-summary">
-          <h2>覆盖文本、图片、视频、语音和 3D 的多模态 AI 工具</h2>
-          <p>支持 AI 对话与写作、AI 编程、文生图、图生图、AI 视频生成、语音合成、语音转文字和 3D 模型生成，创作记录可跨设备安全归档。</p>
+      <div className="auth-brand"><span><Sparkles /></span><div><strong>XiaoY</strong><small>MODELHUB</small></div></div>
+      <div className="auth-story-main">
+        <div className="auth-story-copy">
+          <small>YOUR CREATIVE SPACE</small>
+          <h1>回来啦，<br /><span>灵感已经就位。</span></h1>
+          <p>想写、想画、想让画面动起来，都从这里继续。</p>
+          <div className="auth-capability-icons" aria-label="创作能力">
+            {authCapabilities.map(({ icon: Icon, label }) => <span key={label}><Icon /><small>{label}</small></span>)}
+          </div>
+        </div>
+        <div className="auth-mascot-stage" aria-hidden="true">
+          <i className="auth-mascot-halo" />
+          <img className="auth-mascot-main" src="/images/capabilities/chat-writing.webp" alt="" />
+          <img className="auth-mascot-friend auth-friend-video" src="/images/capabilities/video-generation.webp" alt="" />
+          <img className="auth-mascot-friend auth-friend-audio" src="/images/capabilities/voice-audio.webp" alt="" />
+          <span className="auth-sticker auth-sticker-models"><Sparkles /><b>132</b><small>MODELS</small></span>
+          <span className="auth-sticker auth-sticker-live"><i /> READY</span>
         </div>
       </div>
-      <div className="auth-feature-row">
-        <span>2,000+ 模型目录</span>
-        <span>AI 对话与写作</span>
-        <span>AI 图片生成</span>
-        <span>AI 视频生成</span>
-        <span>语音与 3D 创作</span>
-      </div>
+      <div className="auth-story-foot"><Sparkles /> 选择合适的模型，把想法做出来。</div>
     </section>
     <section className="auth-card-wrap">
       <form className="auth-card" onSubmit={submit}>
         <header>
-          <div><small>{mode === 'login' ? 'WELCOME BACK' : 'CREATE ACCOUNT'}</small><h2>{mode === 'login' ? '登录工作台' : '注册新账户'}</h2></div>
-          <span><LockKeyhole /></span>
+          <div><small>{mode === 'login' ? 'HELLO AGAIN' : 'NEW CREATOR'}</small><h2>{mode === 'login' ? '继续创作' : '创建账户'}</h2></div>
+          <span className="auth-card-mascot"><img src="/images/capabilities/image-generation.webp" alt="" /></span>
         </header>
         {mode === 'register' && <label>
           <span>昵称</span>
