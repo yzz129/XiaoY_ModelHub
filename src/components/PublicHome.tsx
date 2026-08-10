@@ -190,7 +190,7 @@ export function PublicHome({ onRequireAuth }: PublicHomeProps) {
 
       <section className="public-capabilities" aria-labelledby="capability-title">
         <div className="public-section-heading public-section-heading-split">
-          <div><span>01 / CREATIVE CAPABILITIES</span><h2 id="capability-title">不是工具列表，<br />是一张创作地图。</h2></div>
+          <div><span>01 / CREATIVE CAPABILITIES</span><h2 id="capability-title">想做什么，<br />就从这里开始。</h2></div>
           <p>不同任务需要不同能力。我们用更直观的分类，让模型选择回到创作本身，而不是被参数和平台名称淹没。</p>
         </div>
         <div className="public-capability-grid">
