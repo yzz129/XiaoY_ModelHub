@@ -164,14 +164,5 @@ export function PublicHome({ onRequireAuth }: PublicHomeProps) {
         </div>
       </section>
     </main>
-
-    <footer className="public-footer">
-      <div className="public-footer-top">
-        <div className="public-brand"><span className="public-brand-mark"><Sparkles /></span><span className="public-brand-copy"><strong>XiaoY</strong><small>MODELHUB</small></span></div>
-        <h2>好工具很多。<br /><span>适合你的，应该更容易找到。</span></h2>
-        <button type="button" onClick={onRequireAuth}>进入创作工作台 <ArrowUpRight /></button>
-      </div>
-      <div className="public-footer-bottom"><span>© 2026 XIAOY MODELHUB</span><p>AI 模型聚合 · 对话写作 · 图片 · 视频 · 语音 · 3D</p><b>MAKE SOMETHING NEW ✦</b></div>
-    </footer>
   </div>
 }
