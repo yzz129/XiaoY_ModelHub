@@ -21,7 +21,6 @@ type Bubble = {
   velocityX: number
   velocityY: number
   bornAt: number
-  life: number
   phase: number
   directBreakAt: number | null
 }
@@ -36,8 +35,6 @@ type Debris = {
   gravity: number
   rotation: number
   spin: number
-  bornAt: number
-  life: number
   kind: 'code' | 'shard' | 'drop'
   settledAt: number | null
   settleLife: number
@@ -146,7 +143,7 @@ export function BinaryBubbleTrail() {
       return element
     }
 
-    function shatterBubble(bubble: Bubble, card: HTMLElement | null, now: number) {
+    function shatterBubble(bubble: Bubble, card: HTMLElement | null) {
       const token = bubble.element.dataset.token ?? '01'
       addImpact(bubble.x, bubble.y, card)
       removeBubble(bubble)
@@ -169,8 +166,6 @@ export function BinaryBubbleTrail() {
           gravity: kind === 'drop' ? randomBetween(510, 660) : randomBetween(410, 560),
           rotation: randomBetween(-30, 30),
           spin: randomBetween(-280, 280),
-          bornAt: now,
-          life: kind === 'code' ? randomBetween(18000, 22000) : randomBetween(12000, 15000),
           kind,
           settledAt: null,
           settleLife: kind === 'code' ? randomBetween(11000, 14000) : kind === 'shard' ? randomBetween(4800, 6200) : randomBetween(3200, 4600),
@@ -217,16 +212,16 @@ export function BinaryBubbleTrail() {
 
       const card = cardTouchingBubble(bubble)
       if (card) {
-        shatterBubble(bubble, card, now)
+        shatterBubble(bubble, card)
         return
       }
 
       if (bubble.directBreakAt !== null && now >= bubble.directBreakAt) {
-        shatterBubble(bubble, null, now)
+        shatterBubble(bubble, null)
         return
       }
 
-      if (age > bubble.life || bubble.y < -bubble.radius * 1.5 || bubble.x < -90 || bubble.x > window.innerWidth + 90) {
+      if (bubble.y < -bubble.radius * 1.5 || bubble.x < -90 || bubble.x > window.innerWidth + 90) {
         bubble.element.classList.add('is-evaporating')
         removeBubble(bubble)
       }
@@ -275,7 +270,7 @@ export function BinaryBubbleTrail() {
         }
       }
 
-      if (now - piece.bornAt > piece.life || piece.y > window.innerHeight + 120 || piece.x < -120 || piece.x > window.innerWidth + 120) {
+      if (piece.y > window.innerHeight + 120 || piece.x < -120 || piece.x > window.innerWidth + 120) {
         removeDebris(piece)
       }
     }
@@ -330,7 +325,6 @@ export function BinaryBubbleTrail() {
         velocityX: randomBetween(-7, 7),
         velocityY: randomBetween(-46, -29),
         bornAt,
-        life: randomBetween(10000, 13000),
         phase: randomBetween(0, Math.PI * 2),
         directBreakAt: directBreak ? bornAt + randomBetween(90, 240) : null,
       })
@@ -338,14 +332,7 @@ export function BinaryBubbleTrail() {
     }
 
     function handlePointerDown(event: PointerEvent) {
-      for (let index = 0; index < 3; index += 1) {
-        spawnBubble(
-          event.clientX + randomBetween(-18, 18),
-          event.clientY + randomBetween(-12, 12),
-          1 + index * .06,
-          index === 0,
-        )
-      }
+      spawnBubble(event.clientX, event.clientY)
     }
 
     window.addEventListener('pointerdown', handlePointerDown, { passive: true })
