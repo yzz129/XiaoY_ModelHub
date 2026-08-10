@@ -24,6 +24,7 @@ const capabilities = [
     title: '对话与写作',
     description: '从快速问答到复杂推理，在同一处比较不同模型的表达、速度与上下文能力。',
     note: 'CHAT / REASONING',
+    image: '/images/capabilities/chat-writing.webp',
   },
   {
     icon: Image,
@@ -31,6 +32,7 @@ const capabilities = [
     title: '图像生成',
     description: '文生图、图生图与多画幅创作。',
     note: 'IMAGE LAB',
+    image: '/images/capabilities/image-generation.webp',
   },
   {
     icon: Video,
@@ -38,6 +40,7 @@ const capabilities = [
     title: '视频生成',
     description: '从创意描述到视频任务队列。',
     note: 'MOTION',
+    image: '/images/capabilities/video-generation.webp',
   },
   {
     icon: AudioLines,
@@ -45,6 +48,7 @@ const capabilities = [
     title: '语音与音频',
     description: '合成、识别与声音处理模型。',
     note: 'AUDIO',
+    image: '/images/capabilities/voice-audio.webp',
   },
   {
     icon: Box,
@@ -52,6 +56,7 @@ const capabilities = [
     title: '3D 资产',
     description: '用图片或文字生成可管理的 3D 内容。',
     note: 'SPATIAL',
+    image: '/images/capabilities/three-d-assets.webp',
   },
 ]
 
@@ -121,14 +126,14 @@ export function PublicHome({ onRequireAuth }: PublicHomeProps) {
           <p>不同任务需要不同能力。我们用更直观的分类，让模型选择回到创作本身，而不是被参数和平台名称淹没。</p>
         </div>
         <div className="public-capability-grid">
-          {capabilities.map(({ icon: Icon, number, title, description, note }, index) => <article key={title} className={`public-capability-card capability-${index + 1}`}>
+          {capabilities.map(({ icon: Icon, number, title, description, note, image }, index) => <article key={title} className={`public-capability-card capability-${index + 1}`}>
             <div className="capability-card-top"><span>{number}</span><Icon /><ArrowUpRight /></div>
             <div>
               <small>{note}</small>
               <h3>{title}</h3>
               <p>{description}</p>
             </div>
-            {index === 0 && <div className="capability-signal" aria-hidden="true"><i /><i /><i /><i /></div>}
+            <img className="capability-art" src={image} alt="" aria-hidden="true" />
           </article>)}
         </div>
       </section>
