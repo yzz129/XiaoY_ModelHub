@@ -4,13 +4,11 @@ import {
   AudioLines,
   Box,
   Image,
-  Layers3,
   MessageSquareText,
   Play,
   Search,
   Sparkles,
   Video,
-  WandSparkles,
 } from 'lucide-react'
 import { catalogModels } from '../data/providerCatalog'
 import { ModelCenter } from './ModelCenter'
@@ -132,19 +130,6 @@ export function PublicHome({ onRequireAuth }: PublicHomeProps) {
             </div>
             {index === 0 && <div className="capability-signal" aria-hidden="true"><i /><i /><i /><i /></div>}
           </article>)}
-        </div>
-      </section>
-
-      <section className="public-flow" aria-label="XiaoY ModelHub 使用流程">
-        <div className="public-flow-marquee" aria-hidden="true">
-          <span>DISCOVER</span><Sparkles /><span>COMPARE</span><Sparkles /><span>CREATE</span><Sparkles /><span>DISCOVER</span>
-        </div>
-        <div className="public-flow-inner">
-          <div><Layers3 /><span>自由发现</span><small>无需登录即可浏览模型</small></div>
-          <ArrowRight />
-          <div><Search /><span>清晰比较</span><small>按类型、平台和价格筛选</small></div>
-          <ArrowRight />
-          <div><WandSparkles /><span>开始创作</span><small>使用模型时再进入账户</small></div>
         </div>
       </section>
 
