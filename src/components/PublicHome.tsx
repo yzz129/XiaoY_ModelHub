@@ -90,7 +90,7 @@ export function PublicHome({ onRequireAuth }: PublicHomeProps) {
             <div className="public-trust-row" aria-label="平台数据">
               <span><b>{catalogModels.length}</b><small>个模型<br />持续更新</small></span>
               <span><b>05</b><small>类创作<br />统一入口</small></span>
-              <span><b>01</b><small>个账号<br />按需使用</small></span>
+              <span><b>11</b><small>服务平台<br />灵活接入</small></span>
             </div>
           </div>
 
