@@ -4,6 +4,14 @@ import RootApp from './RootApp'
 import './styles.css'
 import './ui-refinement.css'
 
+function preventContentExtraction(event: Event) {
+  event.preventDefault()
+}
+
+for (const eventName of ['contextmenu', 'copy', 'cut', 'dragstart', 'selectstart']) {
+  document.addEventListener(eventName, preventContentExtraction, { capture: true })
+}
+
 interface AppErrorBoundaryProps {
   children: ReactNode
 }

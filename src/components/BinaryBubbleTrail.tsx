@@ -23,6 +23,7 @@ type Bubble = {
   bornAt: number
   life: number
   phase: number
+  directBreakAt: number | null
 }
 
 type Debris = {
@@ -37,7 +38,11 @@ type Debris = {
   spin: number
   bornAt: number
   life: number
+  kind: 'code' | 'shard' | 'drop'
   settledAt: number | null
+  settleLife: number
+  fadingAt: number | null
+  fadeLife: number
   restingOn: HTMLElement | null
   restingOffsetX: number
 }
@@ -100,7 +105,7 @@ export function BinaryBubbleTrail() {
       piece.element.remove()
     }
 
-    function addImpact(x: number, y: number, card: HTMLElement) {
+    function addImpact(x: number, y: number, card: HTMLElement | null) {
       const impact = document.createElement('span')
       impact.className = 'binary-bubble-impact'
       impact.style.left = `${x}px`
@@ -108,10 +113,12 @@ export function BinaryBubbleTrail() {
       layer!.appendChild(impact)
       impact.addEventListener('animationend', () => impact.remove(), { once: true })
 
-      card.classList.remove('binary-card-touched')
-      void card.offsetWidth
-      card.classList.add('binary-card-touched')
-      window.setTimeout(() => card.classList.remove('binary-card-touched'), 620)
+      if (card) {
+        card.classList.remove('binary-card-touched')
+        void card.offsetWidth
+        card.classList.add('binary-card-touched')
+        window.setTimeout(() => card.classList.remove('binary-card-touched'), 620)
+      }
     }
 
     function addLandingSpark(x: number, y: number) {
@@ -132,13 +139,17 @@ export function BinaryBubbleTrail() {
         element.style.setProperty('--shard-height', `${randomBetween(10, 22)}px`)
         element.style.setProperty('--shard-cut', `${randomBetween(28, 68)}%`)
       }
-      if (kind === 'drop') element.style.setProperty('--drop-size', `${randomBetween(4, 8)}px`)
+      if (kind === 'drop') {
+        const dropSize = randomBetween(4, 8)
+        element.style.setProperty('--drop-size', `${dropSize}px`)
+        element.style.setProperty('--drop-height', `${dropSize * 1.35}px`)
+      }
       element.style.setProperty('--piece-delay', `${index * 12}ms`)
       layer!.appendChild(element)
       return element
     }
 
-    function shatterBubble(bubble: Bubble, card: HTMLElement, now: number) {
+    function shatterBubble(bubble: Bubble, card: HTMLElement | null, now: number) {
       const token = bubble.element.dataset.token ?? '01'
       addImpact(bubble.x, bubble.y, card)
       removeBubble(bubble)
@@ -162,8 +173,12 @@ export function BinaryBubbleTrail() {
           rotation: randomBetween(-30, 30),
           spin: randomBetween(-280, 280),
           bornAt: now,
-          life: randomBetween(12000, 15000),
+          life: kind === 'code' ? randomBetween(18000, 22000) : randomBetween(12000, 15000),
+          kind,
           settledAt: null,
+          settleLife: kind === 'code' ? randomBetween(11000, 14000) : kind === 'shard' ? randomBetween(4800, 6200) : randomBetween(3200, 4600),
+          fadingAt: null,
+          fadeLife: kind === 'code' ? 1800 : 720,
           restingOn: null,
           restingOffsetX: 0,
         }
@@ -185,6 +200,7 @@ export function BinaryBubbleTrail() {
       const settleRotation = randomBetween(-16, 16)
       piece.element.style.setProperty('--settle-rotate', `${settleRotation}deg`)
       piece.element.style.setProperty('--settle-rebound', `${settleRotation * -.45}deg`)
+      piece.element.style.setProperty('--piece-fade-duration', `${piece.fadeLife}ms`)
       addLandingSpark(piece.x, rect.top)
 
       card.classList.remove('binary-card-landed')
@@ -208,6 +224,11 @@ export function BinaryBubbleTrail() {
         return
       }
 
+      if (bubble.directBreakAt !== null && now >= bubble.directBreakAt) {
+        shatterBubble(bubble, null, now)
+        return
+      }
+
       if (age > bubble.life || bubble.y < -bubble.radius * 1.5 || bubble.x < -90 || bubble.x > window.innerWidth + 90) {
         bubble.element.classList.add('is-evaporating')
         removeBubble(bubble)
@@ -216,8 +237,7 @@ export function BinaryBubbleTrail() {
 
     function updateDebris(piece: Debris, now: number, delta: number) {
       if (piece.restingOn && piece.settledAt !== null) {
-        if (!piece.restingOn.isConnected || now - piece.settledAt > 4000) {
-          piece.element.classList.add('is-fading')
+        if (!piece.restingOn.isConnected) {
           removeDebris(piece)
           return
         }
@@ -226,6 +246,15 @@ export function BinaryBubbleTrail() {
         piece.y = rect.top
         piece.element.style.left = `${piece.x}px`
         piece.element.style.top = `${piece.y}px`
+
+        if (piece.fadingAt !== null) {
+          if (now - piece.fadingAt >= piece.fadeLife) removeDebris(piece)
+          return
+        }
+        if (now - piece.settledAt >= piece.settleLife) {
+          piece.fadingAt = now
+          piece.element.classList.add('is-fading')
+        }
         return
       }
 
@@ -275,7 +304,7 @@ export function BinaryBubbleTrail() {
       animationFrame = requestAnimationFrame(tick)
     }
 
-    function spawnBubble(x: number, y: number, energy = 1) {
+    function spawnBubble(x: number, y: number, energy = 1, forceDirectBreak = false) {
       if (reducedMotion.matches) return
       while (bubbles.length >= 18) removeBubble(bubbles[0])
 
@@ -292,6 +321,10 @@ export function BinaryBubbleTrail() {
       element.innerHTML = `<span class="binary-orb-shadow"></span><span class="binary-orb-shell"><i class="binary-orb-refraction"></i><b class="binary-orb-code">${token}</b></span>`
       layer!.appendChild(element)
 
+      const bornAt = performance.now()
+      const directBreak = forceDirectBreak || Math.random() < .2
+      if (directBreak) element.classList.add('will-break-directly')
+
       bubbles.push({
         element,
         x,
@@ -299,9 +332,10 @@ export function BinaryBubbleTrail() {
         radius: size / 2,
         velocityX: randomBetween(-7, 7),
         velocityY: randomBetween(-46, -29),
-        bornAt: performance.now(),
+        bornAt,
         life: randomBetween(10000, 13000),
         phase: randomBetween(0, Math.PI * 2),
+        directBreakAt: directBreak ? bornAt + randomBetween(90, 240) : null,
       })
       ensureAnimation()
     }
@@ -324,6 +358,7 @@ export function BinaryBubbleTrail() {
           event.clientX + randomBetween(-18, 18),
           event.clientY + randomBetween(-12, 12),
           1 + index * .06,
+          index === 0,
         )
       }
     }
