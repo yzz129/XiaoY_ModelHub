@@ -85,7 +85,7 @@ export function PublicHome({ onRequireAuth }: PublicHomeProps) {
       <section className="public-hero" aria-labelledby="public-home-title">
         <div className="public-hero-grid">
           <div className="public-hero-copy">
-            <span className="public-eyebrow"><i /> OPEN MODEL CREATIVE SPACE <b>2026</b></span>
+            <span className="public-eyebrow"><i /> OPEN MODEL CREATIVE SPACE</span>
             <h1 id="public-home-title">让每一种灵感，<span>找到合适的 AI。</span></h1>
             <p>XiaoY ModelHub 把分散的 AI 对话、图像、视频、语音与 3D 模型带进一个清晰的创作入口。先自由浏览，再选择真正适合任务的工具。</p>
             <div className="public-actions">

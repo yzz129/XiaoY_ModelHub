@@ -56,9 +56,7 @@ export function AuthPage({ onAuthenticated, onCancel }: AuthPageProps) {
         </div>
         <div className="auth-mascot-stage" aria-hidden="true">
           <i className="auth-mascot-halo" />
-          <img className="auth-mascot-main" src="/images/capabilities/chat-writing.webp" alt="" />
-          <img className="auth-mascot-friend auth-friend-video" src="/images/capabilities/video-generation.webp" alt="" />
-          <img className="auth-mascot-friend auth-friend-audio" src="/images/capabilities/voice-audio.webp" alt="" />
+          <img className="auth-mascot-main" src="/images/capabilities/chat-writing-cutout.png" alt="" />
           <span className="auth-sticker auth-sticker-models"><Sparkles /><b>132</b><small>MODELS</small></span>
           <span className="auth-sticker auth-sticker-live"><i /> READY</span>
         </div>
