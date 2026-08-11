@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 
 const binaryTokens = ['01', '10', '0101', '1010', '0', '1']
+const motionSpawnInterval = 5000
 const collisionSelector = [
   '.public-hero-visual',
   '.public-capability-card',
@@ -60,6 +61,7 @@ export function BinaryBubbleTrail() {
     const debris: Debris[] = []
     let animationFrame = 0
     let previousFrame = performance.now()
+    let lastMotionSpawnAt = Number.NEGATIVE_INFINITY
     let disposed = false
 
     function elementCardAt(x: number, y: number) {
@@ -333,12 +335,25 @@ export function BinaryBubbleTrail() {
 
     function handlePointerDown(event: PointerEvent) {
       spawnBubble(event.clientX, event.clientY)
+      lastMotionSpawnAt = performance.now()
+    }
+
+    function handlePointerMove(event: PointerEvent) {
+      if (!event.isPrimary) return
+
+      const now = performance.now()
+      if (now - lastMotionSpawnAt < motionSpawnInterval) return
+
+      lastMotionSpawnAt = now
+      spawnBubble(event.clientX, event.clientY)
     }
 
     window.addEventListener('pointerdown', handlePointerDown, { passive: true })
+    window.addEventListener('pointermove', handlePointerMove, { passive: true })
     return () => {
       disposed = true
       window.removeEventListener('pointerdown', handlePointerDown)
+      window.removeEventListener('pointermove', handlePointerMove)
       if (animationFrame) cancelAnimationFrame(animationFrame)
       layer.replaceChildren()
     }

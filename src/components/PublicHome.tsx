@@ -22,42 +22,42 @@ const capabilities = [
   {
     icon: MessageSquareText,
     number: '01',
-    title: '对话与写作',
-    description: '从快速问答到复杂推理，在同一处比较不同模型的表达、速度与上下文能力。',
+    title: '你问不过我你信不',
+    description: '有事找模型 没事找点事',
     note: 'CHAT / REASONING',
-    image: '/images/capabilities/chat-writing.webp',
+    image: '/images/capabilities/chat-writing-poop.webp',
   },
   {
     icon: Image,
     number: '02',
-    title: '图像生成',
-    description: '文生图、图生图与多画幅创作。',
+    title: '我一口气能生成3斤屎',
+    description: '一句话下去 画面直接喷涌而出',
     note: 'IMAGE LAB',
-    image: '/images/capabilities/image-generation.webp',
+    image: '/images/capabilities/image-generation-poop.webp',
   },
   {
     icon: Video,
     number: '03',
-    title: '视频生成',
-    description: '从创意描述到视频任务队列。',
+    title: '这坨画面自己会跑',
+    description: '静止只是它最后的倔强',
     note: 'MOTION',
-    image: '/images/capabilities/video-generation.webp',
+    image: '/images/capabilities/video-generation-poop.webp',
   },
   {
     icon: AudioLines,
     number: '04',
-    title: '语音与音频',
-    description: '合成、识别与声音处理模型。',
+    title: '声音中弥漫着屎的味道',
+    description: '先听个响 再闻个味',
     note: 'AUDIO',
-    image: '/images/capabilities/voice-audio.webp',
+    image: '/images/capabilities/voice-audio-poop.webp',
   },
   {
     icon: Box,
     number: '05',
-    title: '3D 资产',
-    description: '用图片或文字生成可管理的 3D 内容。',
+    title: '我要做赤石仙人',
+    description: '平面的屎也有立体梦想',
     note: 'SPATIAL',
-    image: '/images/capabilities/three-d-assets.webp',
+    image: '/images/capabilities/three-d-assets-poop.webp',
   },
 ]
 
@@ -75,8 +75,8 @@ export function PublicHome({ onRequireAuth }: PublicHomeProps) {
           <span className="public-brand-copy"><strong>XiaoY</strong><small>MODELHUB</small></span>
         </a>
         <nav aria-label="首页导航">
-          <button type="button" onClick={browseModels}>探索模型</button>
-          <button type="button" className="public-login" onClick={onRequireAuth}>进入工作台 <ArrowUpRight /></button>
+          <button type="button" onClick={browseModels}>去挖模型</button>
+          <button type="button" className="public-login" onClick={onRequireAuth}>开始整活 <ArrowUpRight /></button>
         </nav>
       </div>
     </header>
@@ -85,17 +85,17 @@ export function PublicHome({ onRequireAuth }: PublicHomeProps) {
       <section className="public-hero" aria-labelledby="public-home-title">
         <div className="public-hero-grid">
           <div className="public-hero-copy">
-            <span className="public-eyebrow"><i /> OPEN MODEL CREATIVE SPACE</span>
-            <h1 id="public-home-title">让每一种灵感，<span>找到合适的 AI。</span></h1>
-            <p>XiaoY ModelHub 把分散的 AI 对话、图像、视频、语音与 3D 模型带进一个清晰的创作入口。先自由浏览，再选择真正适合任务的工具。</p>
+            <span className="public-eyebrow"><i /> XIAOY MODELHUB</span>
+            <h1 id="public-home-title">自己做的shit<span>自己享用</span></h1>
+            <p>你生成不过我你信不</p>
             <div className="public-actions">
-              <button type="button" className="primary" onClick={browseModels}>浏览全部模型 <ArrowRight /></button>
-              <button type="button" className="secondary" onClick={onRequireAuth}><Play /> 登录开始创作</button>
+              <button type="button" className="primary" onClick={browseModels}>去屎山里挖模型 <ArrowRight /></button>
+              <button type="button" className="secondary" onClick={onRequireAuth}><Play /> 登录开始出货</button>
             </div>
             <div className="public-trust-row" aria-label="平台数据">
-              <span><b>{catalogModels.length}</b><small>个模型<br />持续更新</small></span>
-              <span><b>05</b><small>类创作<br />统一入口</small></span>
-              <span><b>11</b><small>服务平台<br />灵活接入</small></span>
+              <span><b>{catalogModels.length}</b><small>个模型<br />随时开席</small></span>
+              <span><b>05</b><small>种玩法<br />各显神通</small></span>
+              <span><b>11</b><small>个平台<br />轮流上桌</small></span>
             </div>
           </div>
 
@@ -104,28 +104,28 @@ export function PublicHome({ onRequireAuth }: PublicHomeProps) {
             <div className="public-prism" aria-hidden="true"><i /><i /><i /></div>
             <div className="public-product-window">
               <div className="public-window-bar"><span /><span /><span /><b>XY / MODEL MAP</b><em>LIVE</em></div>
-              <div className="public-window-search"><Search /><span>今天想创造什么？</span><kbd>⌘ K</kbd></div>
+              <div className="public-window-search"><Search /><span>今天准备整点什么</span><kbd>⌘ K</kbd></div>
               <div className="public-window-grid">
                 <article className="window-card window-card-featured">
                   <div><MessageSquareText /><span>SMART CHAT</span></div>
-                  <h3>先定义问题，<br />再选择模型。</h3>
-                  <p>推理 · 长文本 · 多模态</p>
-                  <button type="button" tabIndex={-1}>开始探索 <ArrowUpRight /></button>
+                  <h3>问题甩过来<br />模型自己上</h3>
+                  <p>能聊 能写 还能胡说</p>
+                  <button type="button" tabIndex={-1}>来坨大的 <ArrowUpRight /></button>
                 </article>
-                <article className="window-card window-card-image"><Image /><span>IMAGE</span><b>视觉实验室</b><small>12 models</small></article>
-                <article className="window-card window-card-video"><Video /><span>VIDEO</span><b>让画面动起来</b><small>08 models</small></article>
+                <article className="window-card window-card-image"><Image /><span>IMAGE</span><b>我一口气能生成3斤屎</b><small>12 models</small></article>
+                <article className="window-card window-card-video"><Video /><span>VIDEO</span><b>这坨画面自己会跑</b><small>08 models</small></article>
               </div>
               <div className="public-window-foot"><span><i /> ALL SYSTEMS READY</span><b>OPENROUTER · POLLINATIONS · AGNES</b></div>
             </div>
-            <div className="public-sticker sticker-no-login"><b>自由浏览</b><small>使用时再登录</small><ArrowUpRight /></div>
+            <div className="public-sticker sticker-no-login"><b>先来白嫖</b><small>用时再登录</small><ArrowUpRight /></div>
           </div>
         </div>
       </section>
 
       <section className="public-capabilities" aria-labelledby="capability-title">
         <div className="public-section-heading public-section-heading-split">
-          <div><span>01 / CREATIVE CAPABILITIES</span><h2 id="capability-title">想做什么，<br />就从这里开始。</h2></div>
-          <p>不同任务需要不同能力。我们用更直观的分类，让模型选择回到创作本身，而不是被参数和平台名称淹没。</p>
+          <div><span>01 / CREATIVE CAPABILITIES</span><h2 id="capability-title">Shit!<br />Just do it</h2></div>
+          <p>你负责整活 模型负责把活整出来</p>
         </div>
         <div className="public-capability-grid">
           {capabilities.map(({ icon: Icon, number, title, description, note, image }, index) => <article key={title} className={`public-capability-card capability-${index + 1}`}>
@@ -142,15 +142,15 @@ export function PublicHome({ onRequireAuth }: PublicHomeProps) {
 
       <section className="public-model-section" id="public-models" aria-labelledby="public-model-title">
         <div className="public-model-heading">
-          <div><span>02 / MODEL MARKETPLACE</span><h2 id="public-model-title">公开模型广场</h2></div>
-          <div className="public-model-heading-note"><i /><p><b>实时目录</b><br />共收录 {catalogModels.length} 个模型，可直接筛选和比较。</p></div>
+          <div><span>02 / MODEL MARKETPLACE</span><h2 id="public-model-title">模型屎山欢迎来挖</h2></div>
+          <div className="public-model-heading-note"><i /><p><b>今日新鲜出炉</b><br />好赤爱赤</p></div>
         </div>
         <div className="public-model-marketplace">
           <ModelCenter
             embedded
             guest
             models={catalogModels}
-            modelSyncSummary={`公开展示 ${catalogModels.length} 个内置模型`}
+            modelSyncSummary={`今天有 ${catalogModels.length} 坨可以挑`}
             onUseModel={() => onRequireAuth()}
           />
         </div>

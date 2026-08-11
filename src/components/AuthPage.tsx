@@ -56,7 +56,7 @@ export function AuthPage({ onAuthenticated, onCancel }: AuthPageProps) {
         </div>
         <div className="auth-mascot-stage" aria-hidden="true">
           <i className="auth-mascot-halo" />
-          <img className="auth-mascot-main" src="/images/capabilities/chat-writing-cutout.png" alt="" />
+          <img className="auth-mascot-main" src="/images/capabilities/chat-writing-poop-cutout.png" alt="" />
           <span className="auth-sticker auth-sticker-models"><Sparkles /><b>132</b><small>MODELS</small></span>
           <span className="auth-sticker auth-sticker-live"><i /> READY</span>
         </div>
@@ -67,7 +67,7 @@ export function AuthPage({ onAuthenticated, onCancel }: AuthPageProps) {
       <form className="auth-card" onSubmit={submit}>
         <header>
           <div><small>{mode === 'login' ? 'HELLO AGAIN' : 'NEW CREATOR'}</small><h2>{mode === 'login' ? '继续创作' : '创建账户'}</h2></div>
-          <span className="auth-card-mascot"><img src="/images/capabilities/image-generation.webp" alt="" /></span>
+          <span className="auth-card-mascot"><img src="/images/capabilities/image-generation-poop.webp" alt="" /></span>
         </header>
         {mode === 'register' && <label>
           <span>昵称</span>
