@@ -1,5 +1,5 @@
 import type { ImageModel, Resolution, VideoModel } from '../types/generation'
-import { sortModelsByPricing } from './providerCatalog'
+import { sortModelsByPricing, type PricingTier } from './providerCatalog'
 
 export interface GenerationModelOption<T extends ImageModel | VideoModel> {
   id: T
@@ -11,7 +11,7 @@ export interface GenerationModelOption<T extends ImageModel | VideoModel> {
   maxPromptLength: number
   supportsReferenceImage?: boolean
   durations?: number[]
-  pricing: 'free' | 'free-quota' | 'paid' | 'variable'
+  pricing: PricingTier
 }
 
 export const imageModels: GenerationModelOption<ImageModel>[] = sortModelsByPricing<GenerationModelOption<ImageModel>>([
@@ -22,8 +22,8 @@ export const imageModels: GenerationModelOption<ImageModel>[] = sortModelsByPric
   { id: 'agnes-image-2.0-flash', name: 'Agnes Image 2.0 Flash', description: 'Agnes AI · 免费核心模型', provider: 'agnes', resolutions: ['1K', '2K', '3K', '4K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'free' },
   { id: 'agnes-image-2.1-flash', name: 'Agnes Image 2.1 Flash', description: 'Agnes AI · 免费核心模型', provider: 'agnes', resolutions: ['1K', '2K', '3K', '4K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'free' },
   { id: 'siliconflow-kolors', apiModel: 'Kwai-Kolors/Kolors', name: 'Kolors', description: 'SiliconFlow · 费用以模型页为准', provider: 'siliconflow', resolutions: ['1K'], maxPromptLength: 2048, pricing: 'variable' },
-  { id: 'cloudflare-flux-schnell', apiModel: '@cf/black-forest-labs/flux-1-schnell', name: 'FLUX.1 Schnell', description: 'Cloudflare · 每日免费额度', provider: 'cloudflare', resolutions: ['1K'], maxPromptLength: 2048, pricing: 'free-quota' },
-  { id: 'cloudflare-sdxl-lightning', apiModel: '@cf/bytedance/stable-diffusion-xl-lightning', name: 'SDXL-Lightning', description: 'Cloudflare · 单步价格为 0', provider: 'cloudflare', resolutions: ['1K'], maxPromptLength: 2048, supportsReferenceImage: true, pricing: 'free-quota' },
+  { id: 'cloudflare-flux-schnell', apiModel: '@cf/black-forest-labs/flux-1-schnell', name: 'FLUX.1 Schnell', description: 'Cloudflare · 每日免费额度', provider: 'cloudflare', resolutions: ['1K'], maxPromptLength: 2048, pricing: 'daily-refresh' },
+  { id: 'cloudflare-sdxl-lightning', apiModel: '@cf/bytedance/stable-diffusion-xl-lightning', name: 'SDXL-Lightning', description: 'Cloudflare · 单步价格为 0', provider: 'cloudflare', resolutions: ['1K'], maxPromptLength: 2048, supportsReferenceImage: true, pricing: 'daily-refresh' },
   { id: 'pollinations-sana', apiModel: 'sana', name: 'Sana', description: 'Pollinations · Pollen 赠送额度可用', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, pricing: 'free-quota' },
   { id: 'pollinations-kontext', apiModel: 'kontext', name: 'Kontext', description: 'Pollinations · 支持参考图编辑', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'free-quota' },
   { id: 'pollinations-gptimage', apiModel: 'gptimage', name: 'GPT Image Mini', description: 'Pollinations · 支持参考图', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'free-quota' },

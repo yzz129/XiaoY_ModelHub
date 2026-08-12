@@ -85,7 +85,7 @@ export interface AccountCredential {
 }
 
 export async function getAccountCredentials() {
-  return requestJson<{ credentials: AccountCredential[], configuredProviders: string[] }>('/api/credentials')
+  return requestJson<{ credentials: AccountCredential[], configuredProviders: string[], personalProviders: string[] }>('/api/credentials')
 }
 
 export async function saveAccountCredential(providerId: string, credentials: ProviderCredentials) {

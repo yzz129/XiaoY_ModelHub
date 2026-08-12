@@ -1,5 +1,7 @@
 import {
   catalogModels,
+  categoryLabels,
+  dailyRefreshQuotaByProvider,
   providerDefinitionById,
   providerDefinitions,
   sortModelsByPricing,
@@ -31,7 +33,7 @@ export interface ProviderCatalogSync {
   fromCache?: boolean
 }
 
-const cacheKey = 'xiaoy-provider-model-catalog-v5'
+const cacheKey = 'xiaoy-provider-model-catalog-v8'
 const cacheTtlMs = 30 * 60 * 1000
 let pendingSync: Promise<ProviderCatalogSync> | undefined
 
@@ -58,25 +60,64 @@ function toCatalogModel(providerId: string, model: NonNullable<ProviderModelsRes
   const provider = providerDefinitionById[providerId]
   const apiModel = model.apiModel?.trim()
   if (!provider || !apiModel) return undefined
+  const category = model.category ?? 'chat'
+  const name = model.name?.trim() || apiModel
+  const pricing = model.pricing ?? 'variable'
+  const dailyRefreshQuota = pricing === 'daily-refresh'
+    ? dailyRefreshQuotaByProvider[providerId]
+    : undefined
   return {
     id: `live:${providerId}:${apiModel}`,
     apiModel,
-    name: model.name?.trim() || apiModel,
+    name,
     provider: provider.name,
     providerId,
-    category: model.category ?? 'chat',
-    pricing: model.pricing ?? 'variable',
-    quota: providerId === 'agnes'
+    category,
+    pricing,
+    quota: dailyRefreshQuota?.quota ?? (providerId === 'agnes'
       ? '当前输入和输出 Token 均为 $0；免费使用仍受 RPM、RPD 与并发限制'
-      : '价格、配额和区域可用性以服务商控制台实时信息为准',
-    quotaLookup: providerId === 'agnes'
+      : '价格、配额和区域可用性以服务商控制台实时信息为准'),
+    quotaLookup: dailyRefreshQuota?.quotaLookup ?? (providerId === 'agnes'
       ? 'Agnes Token 方案页查看当前限流规则'
-      : '模型由服务商官方目录动态同步',
+      : '模型由服务商官方目录动态同步'),
     integration: 'catalog',
-    description: model.description?.trim() || '由服务商官方模型目录动态同步',
+    description: localizeModelDescription(model.description, category, provider.name),
     docsUrl: provider.docsUrl,
     keyUrl: provider.keyUrl,
   }
+}
+
+const categoryUseCases: Record<ModelCategory, string> = {
+  chat: '对话、文本生成与知识问答',
+  image: '图片生成、图像编辑与视觉创作',
+  video: '文生视频、图生视频与动态画面创作',
+  audio: '语音识别、语音合成与音频处理',
+  embedding: '文本向量化与语义检索',
+  reranker: '搜索结果重排与相关性优化',
+  '3d': '三维内容生成与空间资产创作',
+}
+
+function localizeModelDescription(description: string | undefined, category: ModelCategory, providerName: string) {
+  const sourceText = description?.trim() ?? ''
+  if (/[\u3400-\u9fff]/.test(sourceText)) return sourceText
+
+  const source = sourceText.toLowerCase()
+  const features: string[] = []
+  const addFeature = (pattern: RegExp, label: string) => {
+    if (pattern.test(source) && !features.includes(label)) features.push(label)
+  }
+  addFeature(/reasoning|chain.of.thought|problem.solving/, '复杂推理')
+  addFeature(/code|coding|programming|software/, '编程与代码任务')
+  addFeature(/multimodal|vision.language|image understanding/, '多模态理解')
+  addFeature(/long.context|context window|document/, '长上下文与文档处理')
+  addFeature(/agent|tool.call|function.call/, '工具调用与智能体工作流')
+  addFeature(/reference.image|image.guided|first.frame|last.frame/, '参考图与关键帧控制')
+  addFeature(/video edit|video extension|extend video/, '视频编辑与续写')
+  addFeature(/text.to.speech|speech synthesis|\btts\b/, '文字转语音')
+  addFeature(/speech.to.text|transcri|\basr\b/, '语音转文字')
+  addFeature(/multilingual|multiple languages/, '多语言任务')
+
+  return `由 ${providerName} 提供的${categoryLabels[category]}模型，主要用于${categoryUseCases[category]}${features.length ? `，支持${features.slice(0, 3).join('、')}` : ''}。`
 }
 
 async function syncOneProvider(providerId: string) {

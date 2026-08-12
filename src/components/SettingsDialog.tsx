@@ -8,6 +8,7 @@ import {
   clearProviderCatalogCache,
   getProviderCredentialFields,
   isProviderConfigured,
+  isProviderPersonallyConfigured,
   type ProviderCredentials,
 } from '../lib/providerCredentials'
 
@@ -41,8 +42,10 @@ export function SettingsDialog({
   const [showSecret, setShowSecret] = useState(false)
   const [savedMessage, setSavedMessage] = useState('')
   const [saving, setSaving] = useState(false)
-  const configuredCount = providerDefinitions.filter((provider) => isProviderConfigured(provider.id)).length
+  const configuredCount = providerDefinitions.filter((provider) => isProviderPersonallyConfigured(provider.id)).length
   const provider = providerDefinitions.find((item) => item.id === providerId) ?? providerDefinitions[0]
+  const personallyConfigured = isProviderPersonallyConfigured(provider.id)
+  const globallyAvailable = isProviderConfigured(provider.id)
   const fields = getProviderCredentialFields(provider.id)
 
   useEffect(() => {
@@ -69,7 +72,7 @@ export function SettingsDialog({
     try {
       await saveAccountCredential(providerId, credentials)
       const status = await getAccountCredentials()
-      applyProviderConfigurationStatus(status.configuredProviders)
+      applyProviderConfigurationStatus(status.configuredProviders, status.personalProviders)
       clearProviderCatalogCache()
       setCredentials({ apiKey: '' })
       setSavedMessage(`${provider.name} API Key 已加密保存到后端，浏览器未保留副本`)
@@ -87,7 +90,7 @@ export function SettingsDialog({
     try {
       await deleteAccountCredential(providerId)
       const status = await getAccountCredentials()
-      applyProviderConfigurationStatus(status.configuredProviders)
+      applyProviderConfigurationStatus(status.configuredProviders, status.personalProviders)
       clearProviderCatalogCache()
       setCredentials({ apiKey: '' })
       setSavedMessage(`已清除 ${provider.name} 的个人凭据`)
@@ -105,13 +108,13 @@ export function SettingsDialog({
       <div className="settings-scroll">
         <div className="connection-card">
           <div className={configuredCount ? 'status-dot online' : 'status-dot'}><KeyRound size={19} /></div>
-          <div><strong>{configuredCount ? `已配置 ${configuredCount} 个免费服务平台` : '尚未配置 API Key'}</strong><p>当前仅保留 Agnes AI 与 OpenRouter 的免费模型。</p></div>
+          <div><strong>{configuredCount ? `已配置 ${configuredCount} 个个人服务平台` : '尚未配置个人 API Key'}</strong><p>完全免费模型可使用平台公共凭据；其他模型必须使用你的个人 Key。</p></div>
         </div>
 
         <section className="credential-manager" aria-labelledby="credential-title">
           <div className="credential-head">
             <div><strong id="credential-title">服务商凭据</strong><p>选择模型平台并保存自己的 API Key。</p></div>
-            <span className={isProviderConfigured(provider.id) ? 'configured' : ''}>{isProviderConfigured(provider.id) ? '已配置' : '未配置'}</span>
+            <span className={personallyConfigured ? 'configured' : ''}>{personallyConfigured ? '个人 Key 已配置' : globallyAvailable ? '仅免费模型可用' : '未配置'}</span>
           </div>
           <label className="credential-provider">
             <span>服务平台</span>
@@ -126,7 +129,7 @@ export function SettingsDialog({
                 <input
                   type={field.secret && !showSecret ? 'password' : 'text'}
                   value={credentials[field.key] ?? ''}
-                  placeholder={isProviderConfigured(provider.id) ? '已在后端配置；输入新值可覆盖' : field.placeholder}
+                  placeholder={personallyConfigured ? '个人 Key 已保存；输入新值可覆盖' : field.placeholder}
                   autoComplete="off"
                   onChange={(event) => setCredentials((current) => ({ ...current, [field.key]: event.target.value }))}
                 />
@@ -142,7 +145,7 @@ export function SettingsDialog({
           {savedMessage && <p className="credential-message" role="status">{savedMessage}</p>}
         </section>
 
-        <dl className="model-list"><div><dt>语言模型</dt><dd>{catalogModels.filter((model) => model.category === 'chat').length} 个免费模型</dd></div><div><dt>图片模型</dt><dd>{imageModels.length} 个 Agnes 免费模型</dd></div><div><dt>视频模型</dt><dd>{videoModels.length} 个 Agnes 免费模型</dd></div></dl>
+        <dl className="model-list"><div><dt>语言模型</dt><dd>{catalogModels.filter((model) => model.category === 'chat' && model.pricing === 'free').length} 个完全免费模型</dd></div><div><dt>图片模型</dt><dd>{imageModels.filter((model) => model.pricing === 'free').length} 个完全免费模型</dd></div><div><dt>视频模型</dt><dd>{videoModels.filter((model) => model.pricing === 'free').length} 个完全免费模型</dd></div></dl>
         <div className="concurrency-row"><div><strong>视频最高并发</strong><p>同时提交并等待的视频任务数。</p></div><div className="concurrency-options" aria-label="视频最高并发数">{[1, 2, 3, 4].map((value) => <button type="button" key={value} aria-pressed={maxVideoConcurrency === value} className={maxVideoConcurrency === value ? 'active' : ''} onClick={() => onVideoConcurrencyChange(value)}>{value}</button>)}</div></div>
         <div className="concurrency-row"><div><strong>3D 最高并发</strong><p>同时提交并等待的图片转 3D 任务数。</p></div><div className="concurrency-options" aria-label="3D 最高并发数">{[1, 2, 3, 4].map((value) => <button type="button" key={value} aria-pressed={maxThreeDConcurrency === value} className={maxThreeDConcurrency === value ? 'active' : ''} onClick={() => onThreeDConcurrencyChange(value)}>{value}</button>)}</div></div>
         <div className="warning-card"><AlertTriangle size={18} /><p><strong>凭据安全</strong>个人 Key 会在服务端加密后保存，并仅用于当前账号调用模型；管理员可在后台按需查看和管理。</p></div>

@@ -20,10 +20,13 @@ export default function RootApp() {
     getCurrentAccount()
       .then(async (result) => {
         setUser(result.user)
-        const remote = await getAccountCredentials().catch(() => ({ credentials: [], configuredProviders: [] }))
-        applyProviderConfigurationStatus(remote.configuredProviders)
+        const remote = await getAccountCredentials().catch(() => ({ credentials: [], configuredProviders: [], personalProviders: [] }))
+        applyProviderConfigurationStatus(remote.configuredProviders, remote.personalProviders)
       })
-      .catch(() => setUser(undefined))
+      .catch(() => {
+        applyProviderConfigurationStatus([], [])
+        setUser(undefined)
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -35,6 +38,7 @@ export default function RootApp() {
 
   async function logout() {
     await logoutAccount().catch(() => undefined)
+    applyProviderConfigurationStatus([], [])
     setUser(undefined)
     window.location.hash = ''
   }
@@ -43,8 +47,8 @@ export default function RootApp() {
     setUser(nextUser)
     setAuthOpen(false)
     clearLegacyBrowserCredentials()
-    const remote = await getAccountCredentials().catch(() => ({ credentials: [], configuredProviders: [] }))
-    applyProviderConfigurationStatus(remote.configuredProviders)
+    const remote = await getAccountCredentials().catch(() => ({ credentials: [], configuredProviders: [], personalProviders: [] }))
+    applyProviderConfigurationStatus(remote.configuredProviders, remote.personalProviders)
   }
 
   if (loading) return <main className="account-loading"><span /><strong>正在连接工作台…</strong></main>

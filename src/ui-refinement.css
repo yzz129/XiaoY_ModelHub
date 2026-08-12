@@ -802,6 +802,11 @@ dialog.model-center.marketplace:not([open]) {
   color: #119a70;
 }
 
+.portal-theme .price-badge.daily-refresh {
+  background: #f0e9ff;
+  color: #7445de;
+}
+
 .portal-theme .price-badge.free-quota {
   background: #ebf2ff;
   color: #3679dd;
@@ -1751,6 +1756,7 @@ dialog.model-center.marketplace:not([open]) {
 
 .creative-studio-grid {
   height: calc(100vh - 92px);
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(300px, 340px) minmax(0, 1fr);
 }
@@ -1847,13 +1853,24 @@ dialog.model-center.marketplace:not([open]) {
 .creative-quota-note strong { color: #514080; font-size: 12px; }
 
 .chat-workspace {
+  height: 100%;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   padding: 24px clamp(22px, 5vw, 84px);
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 18px;
 }
-.chat-scroll { min-height: 0; overflow: auto; padding: 8px 3px 30px; }
+.chat-scroll {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  padding: 8px 3px 30px;
+}
 .creative-empty {
   position: relative;
   min-height: 100%;

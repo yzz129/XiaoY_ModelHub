@@ -16,7 +16,7 @@ import { useProviderCatalog } from './hooks/useProviderCatalog'
 import { useVideoQueue } from './hooks/useVideoQueue'
 import { useThreeDQueue } from './hooks/useThreeDQueue'
 import { getProviderName, hasApiKeyForSettings, refreshAssetUrl } from './lib/ark'
-import { isProviderConfigured } from './lib/providerCredentials'
+import { isProviderConfigured, isProviderPersonallyConfigured } from './lib/providerCredentials'
 import { clearHistory, loadHistory, loadPreferences, saveHistory, savePreferences } from './lib/storage'
 import { saveGeneratedAsset } from './lib/output'
 import { logActivity } from './lib/account'
@@ -260,11 +260,16 @@ function App() {
   }
 
   function useCatalogModel(model: CatalogModel) {
-    if (!isProviderConfigured(model.providerId)) {
+    const configured = model.pricing === 'free'
+      ? isProviderConfigured(model.providerId)
+      : isProviderPersonallyConfigured(model.providerId)
+    if (!configured) {
       setPendingCatalogModel(model)
       setSettingsProviderId(model.providerId)
       setSettingsOpen(true)
-      setNotice(`请先配置 ${model.provider} API Key；无需有剩余额度也可以选择模型`)
+      setNotice(model.pricing === 'free'
+        ? `请先配置 ${model.provider} API Key 以调用免费模型`
+        : `${model.name} 不是完全免费模型，请先配置个人 ${model.provider} API Key`)
       return
     }
     activateCatalogModel(model)
@@ -272,7 +277,10 @@ function App() {
 
   function handleCredentialsChange(providerId: string) {
     setCredentialVersion((current) => current + 1)
-    if (pendingCatalogModel?.providerId === providerId && isProviderConfigured(providerId)) {
+    const pendingConfigured = pendingCatalogModel?.pricing === 'free'
+      ? isProviderConfigured(providerId)
+      : isProviderPersonallyConfigured(providerId)
+    if (pendingCatalogModel?.providerId === providerId && pendingConfigured) {
       const model = pendingCatalogModel
       setPendingCatalogModel(undefined)
       setSettingsOpen(false)

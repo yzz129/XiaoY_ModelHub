@@ -23,7 +23,7 @@ import {
   type PricingTier,
 } from '../data/providerCatalog'
 import { canQueryQuota, queryProviderQuota, type ProviderQuota } from '../lib/quota'
-import { isProviderConfigured } from '../lib/providerCredentials'
+import { isProviderConfigured, isProviderPersonallyConfigured } from '../lib/providerCredentials'
 
 export type ModelFamily = 'language' | 'speech' | 'vision' | 'vector' | 'router'
 
@@ -307,7 +307,10 @@ export function ModelCenter({
 
           <div className="catalog-grid">
             {models.slice(0, displayLimit).map((model) => {
-              const configured = !guest && isProviderConfigured(model.providerId)
+              const requiresPersonalKey = model.pricing !== 'free'
+              const configured = !guest && (requiresPersonalKey
+                ? isProviderPersonallyConfigured(model.providerId)
+                : isProviderConfigured(model.providerId))
               const quotaText = quotaByProvider[model.providerId]?.summary
                 ?? quotaError[model.providerId]
                 ?? model.quotaLookup
@@ -333,7 +336,7 @@ export function ModelCenter({
                   <div className="catalog-tags">
                     <span>{categoryLabels[model.category]}</span>
                     <span className={configured ? 'configured' : ''}>
-                      {guest ? '登录后配置 API Key' : configured ? '后端 Key 已配置' : '需在账号中配置 API Key'}
+                      {guest ? '登录后配置 API Key' : configured ? requiresPersonalKey ? '个人 API Key 已配置' : '免费模型可用' : '需配置个人 API Key'}
                     </span>
                   </div>
 

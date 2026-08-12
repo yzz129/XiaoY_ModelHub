@@ -53,6 +53,14 @@ export function useProviderCatalog() {
     }
   }, [])
 
+  useEffect(() => {
+    const handleInvalidation = () => {
+      void refresh()
+    }
+    window.addEventListener('xiaoy:provider-catalog-invalidated', handleInvalidation)
+    return () => window.removeEventListener('xiaoy:provider-catalog-invalidated', handleInvalidation)
+  }, [refresh])
+
   const models = useMemo(
     () => mergeProviderCatalog(syncResult?.models ?? [], [...catalogModels, ...customModels]),
     [customModels, syncResult],

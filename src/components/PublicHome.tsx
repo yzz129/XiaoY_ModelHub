@@ -76,7 +76,7 @@ export function PublicHome({ onRequireAuth }: PublicHomeProps) {
         </a>
         <nav aria-label="首页导航">
           <button type="button" onClick={browseModels}>去挖模型</button>
-          <button type="button" className="public-login" onClick={onRequireAuth}>开始整活 <ArrowUpRight /></button>
+          <button type="button" className="public-login" onClick={onRequireAuth}>开始造屎 <ArrowUpRight /></button>
         </nav>
       </div>
     </header>

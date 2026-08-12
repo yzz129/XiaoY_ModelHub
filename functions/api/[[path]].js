@@ -346,7 +346,10 @@ async function accountCredentials(env, userId) {
     ...credentials.filter((item) => item.maskedApiKey).map((item) => item.providerId),
     ...(globalRows.results || []).map((row) => row.provider_id),
   ])]
-  return { credentials, configuredProviders }
+  const personalProviders = credentials
+    .filter((item) => item.maskedApiKey)
+    .map((item) => item.providerId)
+  return { credentials, configuredProviders, personalProviders }
 }
 
 async function saveAccountCredential(env, userId, providerId, body) {
@@ -472,7 +475,7 @@ async function saveGlobalCredential(env, adminId, providerId, body) {
 }
 
 const modelCategories = new Set(['chat', 'image', 'video', 'audio', 'embedding', 'reranker', '3d'])
-const pricingTiers = new Set(['free', 'free-quota', 'paid', 'variable'])
+const pricingTiers = new Set(['free', 'daily-refresh', 'free-quota', 'paid', 'variable'])
 
 function customModelPayload(body) {
   const providerId = normalizeProviderId(body.providerId)

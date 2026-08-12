@@ -1,5 +1,5 @@
 export type ModelCategory = 'chat' | 'image' | 'video' | 'audio' | 'embedding' | 'reranker' | '3d'
-export type PricingTier = 'free' | 'free-quota' | 'paid' | 'variable'
+export type PricingTier = 'free' | 'daily-refresh' | 'free-quota' | 'paid' | 'variable'
 export type IntegrationState = 'ready' | 'catalog'
 
 export interface CatalogModel {
@@ -41,20 +41,20 @@ const allProviderDefinitions: ProviderDefinition[] = [
   { id: 'anthropic', name: 'Anthropic Claude', docsUrl: 'https://platform.claude.com/docs/en/api/models/list', keyUrl: 'https://console.anthropic.com/settings/keys' },
   { id: 'baidu', name: '百度智能云千帆', docsUrl: 'https://cloud.baidu.com/doc/qianfan-api/s/Dmba8k71y', keyUrl: 'https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application' },
   { id: 'cerebras', name: 'Cerebras', docsUrl: 'https://inference-docs.cerebras.ai/api-reference/models/list-models', keyUrl: 'https://cloud.cerebras.ai/' },
-  { id: 'cloudflare', name: 'Cloudflare Workers AI', docsUrl: 'https://developers.cloudflare.com/workers-ai/models/', keyUrl: 'https://dash.cloudflare.com/' },
-  { id: 'cohere', name: 'Cohere', docsUrl: 'https://docs.cohere.com/', keyUrl: 'https://dashboard.cohere.com/api-keys' },
+  { id: 'cloudflare', name: 'Cloudflare Workers AI', docsUrl: 'https://developers.cloudflare.com/workers-ai/models/', keyUrl: 'https://dash.cloudflare.com/', publicModelCatalog: true },
+  { id: 'cohere', name: 'Cohere', docsUrl: 'https://docs.cohere.com/', keyUrl: 'https://dashboard.cohere.com/api-keys', publicModelCatalog: true },
   { id: 'deepinfra', name: 'DeepInfra', docsUrl: 'https://deepinfra.com/docs', keyUrl: 'https://deepinfra.com/dash/api_keys', publicModelCatalog: true },
   { id: 'deepseek', name: 'DeepSeek', docsUrl: 'https://api-docs.deepseek.com/api/list-models', keyUrl: 'https://platform.deepseek.com/api_keys' },
   { id: 'elevenlabs', name: 'ElevenLabs', docsUrl: 'https://elevenlabs.io/docs/api-reference/models/list', keyUrl: 'https://elevenlabs.io/app/settings/api-keys' },
   { id: 'fireworks', name: 'Fireworks AI', docsUrl: 'https://docs.fireworks.ai/api-reference/list-models', keyUrl: 'https://app.fireworks.ai/settings/users/api-keys' },
-  { id: 'gemini', name: 'Google Gemini', docsUrl: 'https://ai.google.dev/api/models', keyUrl: 'https://aistudio.google.com/apikey' },
+  { id: 'gemini', name: 'Google Gemini', docsUrl: 'https://ai.google.dev/api/models', keyUrl: 'https://aistudio.google.com/apikey', publicModelCatalog: true },
   { id: 'github', name: 'GitHub Models', docsUrl: 'https://docs.github.com/en/rest/models/catalog', keyUrl: 'https://github.com/settings/tokens', publicModelCatalog: true },
-  { id: 'groq', name: 'Groq', docsUrl: 'https://console.groq.com/docs/models', keyUrl: 'https://console.groq.com/keys' },
+  { id: 'groq', name: 'Groq', docsUrl: 'https://console.groq.com/docs/models', keyUrl: 'https://console.groq.com/keys', publicModelCatalog: true },
   { id: 'huggingface', name: 'Hugging Face', docsUrl: 'https://huggingface.co/docs/inference-providers/en/hub-api', keyUrl: 'https://huggingface.co/settings/tokens', publicModelCatalog: true },
-  { id: 'jina', name: 'Jina AI', docsUrl: 'https://jina.ai/embeddings/', keyUrl: 'https://jina.ai/api-dashboard/' },
+  { id: 'jina', name: 'Jina AI', docsUrl: 'https://jina.ai/embeddings/', keyUrl: 'https://jina.ai/api-dashboard/', publicModelCatalog: true },
   { id: 'minimax', name: 'MiniMax', docsUrl: 'https://platform.minimaxi.com/docs/api-reference/models/openai/list-models', keyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key' },
   { id: 'mistral', name: 'Mistral AI', docsUrl: 'https://docs.mistral.ai/api/endpoint/models', keyUrl: 'https://console.mistral.ai/api-keys' },
-  { id: 'modelscope', name: 'ModelScope', docsUrl: 'https://modelscope.cn/docs', keyUrl: 'https://modelscope.cn/my/myaccesstoken' },
+  { id: 'modelscope', name: 'ModelScope', docsUrl: 'https://modelscope.cn/docs', keyUrl: 'https://modelscope.cn/my/myaccesstoken', publicModelCatalog: true },
   { id: 'moonshot', name: 'Moonshot AI', docsUrl: 'https://platform.moonshot.cn/docs/api-reference', keyUrl: 'https://platform.moonshot.cn/console/api-keys' },
   { id: 'nvidia', name: 'NVIDIA NIM', docsUrl: 'https://docs.api.nvidia.com/nim/reference/llm-apis', keyUrl: 'https://build.nvidia.com/settings/api-keys', publicModelCatalog: true },
   { id: 'openai', name: 'OpenAI', docsUrl: 'https://platform.openai.com/docs/api-reference/models/list', keyUrl: 'https://platform.openai.com/api-keys' },
@@ -63,10 +63,10 @@ const allProviderDefinitions: ProviderDefinition[] = [
   { id: 'pollinations', name: 'Pollinations', docsUrl: 'https://gen.pollinations.ai/docs', keyUrl: 'https://enter.pollinations.ai/', publicModelCatalog: true },
   { id: 'replicate', name: 'Replicate', docsUrl: 'https://replicate.com/docs/reference/http#models.list', keyUrl: 'https://replicate.com/account/api-tokens' },
   { id: 'sambanova', name: 'SambaNova', docsUrl: 'https://docs.sambanova.ai/docs/api-reference/endpoints/model-list', keyUrl: 'https://cloud.sambanova.ai/apis' },
-  { id: 'siliconflow', name: 'SiliconFlow', docsUrl: 'https://docs.siliconflow.cn/en/api-reference/models/get-model-list', keyUrl: 'https://cloud.siliconflow.cn/account/ak' },
+  { id: 'siliconflow', name: 'SiliconFlow', docsUrl: 'https://docs.siliconflow.cn/en/api-reference/models/get-model-list', keyUrl: 'https://cloud.siliconflow.cn/account/ak', publicModelCatalog: true },
   { id: 'together', name: 'Together AI', docsUrl: 'https://docs.together.ai/reference/models', keyUrl: 'https://api.together.ai/settings/api-keys' },
   { id: 'xai', name: 'xAI', docsUrl: 'https://docs.x.ai/developers/rest-api-reference/inference/models', keyUrl: 'https://console.x.ai/team/default/api-keys' },
-  { id: 'alibaba', name: '阿里云百炼', docsUrl: 'https://help.aliyun.com/zh/model-studio/', keyUrl: 'https://bailian.console.aliyun.com/' },
+  { id: 'alibaba', name: '阿里云百炼', docsUrl: 'https://help.aliyun.com/zh/model-studio/', keyUrl: 'https://bailian.console.aliyun.com/', publicModelCatalog: true },
   { id: 'ark', name: '火山方舟', docsUrl: 'https://www.volcengine.com/docs/82379', keyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey' },
 ]
 
@@ -78,16 +78,54 @@ export const providerDefinitionById = Object.fromEntries(
 
 export const pricingLabels: Record<PricingTier, string> = {
   free: '完全免费',
-  'free-quota': '有免费额度',
+  'daily-refresh': '每日刷新',
+  'free-quota': '限量试用',
   variable: '按模型计费',
   paid: '付费',
 }
 
+interface QuotaDescription {
+  quota: string
+  quotaLookup: string
+}
+
+export const dailyRefreshQuotaByProvider: Partial<Record<string, QuotaDescription>> = {
+  openrouter: {
+    quota: '免费模型每日 50 次；账户累计购买至少 10 美元额度后，每日提高到 1,000 次',
+    quotaLookup: 'OpenRouter Activity 或 API Key 页面查看今日用量',
+  },
+  cloudflare: {
+    quota: '所有模型共享每日 10,000 Neurons 免费额度；北京时间每天 08:00 刷新',
+    quotaLookup: 'Workers AI Dashboard 查看 Neurons 用量',
+  },
+  gemini: {
+    quota: 'Free Tier 按模型提供每日请求额度；太平洋时间午夜刷新',
+    quotaLookup: 'Google AI Studio 的 Rate limits 页面查看精确上限',
+  },
+  groq: {
+    quota: 'Free Plan 按模型提供 RPD、TPD 和音频时长额度，每日自动恢复',
+    quotaLookup: 'Groq Limits 页面查看当前模型的精确上限',
+  },
+  modelscope: {
+    quota: '指定 API-Inference 模型通常每天至少 50 次免费调用',
+    quotaLookup: 'ModelScope 模型页与控制台查看今日剩余量',
+  },
+  cerebras: {
+    quota: 'Free Tier 多数模型每日约 100 万 Token；请求次数上限按模型计算',
+    quotaLookup: 'Cerebras 控制台 Limits 与响应头查看重置时间',
+  },
+  sambanova: {
+    quota: 'Free Tier 常见上限为每个模型每日 20 次、20 万 Token',
+    quotaLookup: 'SambaCloud 响应头或控制台查看今日剩余量',
+  },
+}
+
 const pricingPriority: Record<PricingTier, number> = {
   free: 0,
-  'free-quota': 1,
-  variable: 2,
-  paid: 3,
+  'daily-refresh': 1,
+  'free-quota': 2,
+  variable: 3,
+  paid: 4,
 }
 
 export function sortModelsByPricing<T extends { pricing: PricingTier }>(models: readonly T[]): T[] {
@@ -192,7 +230,7 @@ const arkCatalogModels: CatalogModel[] = [
   providerCatalogModel('ark', 'doubao-embedding-large-text-250515', 'Doubao Large Text Embedding', 'embedding', 'variable'),
 ]
 
-export const catalogModels: CatalogModel[] = sortModelsByPricing<CatalogModel>([
+const baseCatalogModels: CatalogModel[] = [
   ...alibabaCatalogModels,
   ...arkCatalogModels,
   { id: 'ark-doubao-seed-lite', apiModel: 'doubao-seed-1-6-lite-250615', name: 'Doubao Seed 1.6 Lite', provider: '火山方舟', providerId: 'ark', category: 'chat', pricing: 'free-quota', quota: '注册并开通方舟后可领取体验额度；到账金额和适用模型以控制台为准', quotaLookup: '方舟控制台的免费体验与费用中心查看', integration: 'ready', description: '国内低延迟、OpenAI 兼容的豆包轻量语言模型', docsUrl: 'https://www.volcengine.com/docs/82379/1494384', keyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey' },
@@ -270,4 +308,29 @@ export const catalogModels: CatalogModel[] = sortModelsByPricing<CatalogModel>([
   { id: 'cohere-rerank', apiModel: 'rerank-v3.5', name: 'Rerank 3.5', provider: 'Cohere', providerId: 'cohere', category: 'reranker', pricing: 'free-quota', quota: 'Trial Key 免费，Rerank 通常 10 RPM', quotaLookup: 'Cohere Dashboard 查看', integration: 'catalog', description: '语义搜索结果重排', docsUrl: 'https://docs.cohere.com/', keyUrl: 'https://dashboard.cohere.com/api-keys' },
 
   { id: 'seed3d', apiModel: 'doubao-seed3d-2-0-260328', name: 'Seed3D 2.0', provider: '火山方舟', providerId: 'ark', category: '3d', pricing: 'paid', quota: '按量计费', quotaLookup: '方舟费用中心查看', integration: 'ready', description: '图片转 3D', docsUrl: 'https://www.volcengine.com/docs/82379', keyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey' },
-])
+]
+
+const staticDailyRefreshProviders = new Set(['cloudflare', 'groq', 'modelscope'])
+
+function applyDailyRefreshPricing(model: CatalogModel): CatalogModel {
+  const isOpenRouterFree = model.providerId === 'openrouter'
+    && (model.apiModel === 'openrouter/free' || model.apiModel.endsWith(':free'))
+  const isGeminiDailyFree = model.providerId === 'gemini'
+    && /^gemini-2\.5-flash(?:-lite)?(?:$|-)/i.test(model.apiModel)
+  const isDailyRefresh = staticDailyRefreshProviders.has(model.providerId)
+    || isOpenRouterFree
+    || isGeminiDailyFree
+
+  if (!isDailyRefresh) return model
+  const quotaDescription = dailyRefreshQuotaByProvider[model.providerId]
+  return {
+    ...model,
+    pricing: 'daily-refresh',
+    quota: quotaDescription?.quota ?? model.quota,
+    quotaLookup: quotaDescription?.quotaLookup ?? model.quotaLookup,
+  }
+}
+
+export const catalogModels: CatalogModel[] = sortModelsByPricing(
+  baseCatalogModels.map(applyDailyRefreshPricing),
+)

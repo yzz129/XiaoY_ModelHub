@@ -1,5 +1,17 @@
 import { resolveProviderCredentials } from './_secure_keys.js'
 
+const publicCatalogUrl = 'https://models.dev/api.json'
+const publicCatalogProviderIds = {
+  alibaba: 'alibaba-cn',
+  cloudflare: 'cloudflare-workers-ai',
+  cohere: 'cohere',
+  gemini: 'google',
+  groq: 'groq',
+  siliconflow: 'siliconflow-cn',
+}
+let publicCatalogCache
+let publicCatalogCachedAt = 0
+
 function json(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
@@ -109,23 +121,41 @@ function providerRequest(provider, apiKey, accountId) {
       target = 'https://api.replicate.com/v1/models?sort_by=latest_version_created_at&sort_direction=desc'
       break
     case 'gemini':
-      if (!apiKey) throw new Error('需要先配置 Google Gemini API Key 才能同步完整模型目录')
+      if (!apiKey) {
+        target = publicCatalogUrl
+        break
+      }
       target = `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${encodeURIComponent(apiKey)}`
       break
     case 'groq':
+      if (!apiKey) {
+        target = publicCatalogUrl
+        break
+      }
       requireKey('Groq')
       target = 'https://api.groq.com/openai/v1/models'
       break
     case 'siliconflow':
+      if (!apiKey) {
+        target = publicCatalogUrl
+        break
+      }
       requireKey('SiliconFlow')
       target = 'https://api.siliconflow.cn/v1/models'
       break
     case 'cloudflare':
-      if (!apiKey || !accountId) throw new Error('需要同时配置 Cloudflare API Token 和 Account ID')
+      if (!apiKey || !accountId) {
+        target = publicCatalogUrl
+        break
+      }
       target = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/models/search?per_page=1000`
       headers.Authorization = `Bearer ${apiKey}`
       break
     case 'cohere':
+      if (!apiKey) {
+        target = publicCatalogUrl
+        break
+      }
       requireKey('Cohere')
       target = 'https://api.cohere.com/v1/models?page_size=1000'
       break
@@ -134,10 +164,14 @@ function providerRequest(provider, apiKey, accountId) {
       target = 'https://apihub.agnes-ai.com/v1/models'
       break
     case 'modelscope':
-      requireKey('ModelScope')
       target = 'https://api-inference.modelscope.cn/v1/models'
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
       break
     case 'alibaba':
+      if (!apiKey) {
+        target = publicCatalogUrl
+        break
+      }
       requireKey('阿里云百炼')
       target = 'https://dashscope.aliyuncs.com/compatible-mode/v1/models'
       break
@@ -146,8 +180,8 @@ function providerRequest(provider, apiKey, accountId) {
       target = 'https://ark.cn-beijing.volces.com/api/v3/models'
       break
     case 'jina':
-      requireKey('Jina')
       target = 'https://api.jina.ai/v1/models'
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
       break
     default:
       throw new Error('当前服务商不支持模型目录同步')
@@ -156,7 +190,91 @@ function providerRequest(provider, apiKey, accountId) {
   return { target, headers }
 }
 
+async function fetchPublicCatalog() {
+  if (publicCatalogCache && Date.now() - publicCatalogCachedAt < 30 * 60 * 1000) {
+    return publicCatalogCache
+  }
+  const upstream = await fetch(publicCatalogUrl, {
+    headers: { Accept: 'application/json' },
+    cf: { cacheEverything: true, cacheTtl: 1800 },
+  })
+  const payload = await upstream.json().catch(() => ({}))
+  if (!upstream.ok) throw new Error(`公共模型目录请求失败（${upstream.status}）`)
+  publicCatalogCache = payload
+  publicCatalogCachedAt = Date.now()
+  return payload
+}
+
+function publicCatalogRows(provider, payload) {
+  const sourceId = publicCatalogProviderIds[provider]
+  const source = objectValue(objectValue(payload)?.[sourceId])
+  const models = objectValue(source?.models)
+  if (!models) return []
+
+  return Object.entries(models).flatMap(([fallbackId, value]) => {
+    const model = objectValue(value)
+    if (!model || model.status === 'deprecated') return []
+    const apiModel = stringValue(model, 'id') || fallbackId
+    const modalities = objectValue(model.modalities)
+    const outputs = stringArray(modalities?.output).map((item) => item.toLowerCase())
+    const descriptor = `${apiModel} ${stringValue(model, 'name', 'family')}`.toLowerCase()
+    const task = outputs.includes('video')
+      ? 'text-to-video'
+      : outputs.includes('image')
+        ? 'text-to-image'
+        : outputs.includes('audio')
+          ? 'text-to-speech'
+          : /rerank/.test(descriptor)
+            ? 'reranker'
+            : /embed/.test(descriptor)
+              ? 'embedding'
+              : 'chat'
+    return [{
+      ...model,
+      id: apiModel,
+      name: stringValue(model, 'name') || apiModel,
+      task,
+      pricing: objectValue(model.cost),
+    }]
+  })
+}
+
+function nextProviderPage(provider, currentUrl, payload) {
+  const root = objectValue(payload)
+  if (!root) return undefined
+  const nextUrl = new URL(currentUrl)
+
+  if (provider === 'gemini') {
+    const token = stringValue(root, 'nextPageToken')
+    if (!token) return undefined
+    nextUrl.searchParams.set('pageToken', token)
+    return nextUrl.toString()
+  }
+
+  if (provider === 'cohere') {
+    const token = stringValue(root, 'next_page_token', 'nextPageToken')
+    if (!token) return undefined
+    nextUrl.searchParams.set('page_token', token)
+    return nextUrl.toString()
+  }
+
+  if (provider === 'cloudflare') {
+    const resultInfo = objectValue(root.result_info)
+    const currentPage = Number(resultInfo?.page)
+    const totalPages = Number(resultInfo?.total_pages)
+    if (!Number.isFinite(currentPage) || !Number.isFinite(totalPages) || currentPage >= totalPages) return undefined
+    nextUrl.searchParams.set('page', String(currentPage + 1))
+    return nextUrl.toString()
+  }
+
+  return undefined
+}
+
 async function fetchProviderPayload(provider, target, headers) {
+  if (target === publicCatalogUrl) {
+    return { results: publicCatalogRows(provider, await fetchPublicCatalog()) }
+  }
+
   if (provider === 'replicate') {
     const results = []
     let nextPage = target
@@ -174,6 +292,22 @@ async function fetchProviderPayload(provider, target, headers) {
       results.push(...rowsFromModelPayload(payload))
       const root = objectValue(payload)
       nextPage = typeof root?.next === 'string' && root.next ? root.next : undefined
+    }
+    return { results }
+  }
+
+  if (provider === 'gemini' || provider === 'cohere' || provider === 'cloudflare') {
+    const results = []
+    let nextPage = target
+    for (let page = 0; page < 30 && nextPage; page += 1) {
+      const upstream = await fetch(nextPage, { headers })
+      const payload = await upstream.json().catch(() => ({}))
+      if (!upstream.ok) {
+        const message = payload?.error?.message || payload?.error || payload?.message
+        throw new Error(typeof message === 'string' ? message : `服务商目录请求失败（${upstream.status}）`)
+      }
+      results.push(...rowsFromModelPayload(payload))
+      nextPage = nextProviderPage(provider, nextPage, payload)
     }
     return { results }
   }
@@ -243,18 +377,66 @@ function inferModelCategory(record, apiModel) {
   return 'chat'
 }
 
+const dailyRefreshProviders = new Set(['cloudflare', 'groq', 'modelscope', 'cerebras', 'sambanova'])
+
+function isDailyRefreshModel(provider, apiModel) {
+  if (provider === 'openrouter') {
+    return apiModel === 'openrouter/free' || apiModel.endsWith(':free')
+  }
+  if (provider === 'gemini') {
+    return /^gemini-2\.5-flash(?:-lite)?(?:$|-)/i.test(apiModel)
+  }
+  return dailyRefreshProviders.has(provider)
+}
+
 function inferModelPricing(provider, record, apiModel) {
+  if (isDailyRefreshModel(provider, apiModel)) return 'daily-refresh'
   if (apiModel.endsWith(':free') || /(?:^|[-_/])free(?:$|[-_/])/.test(apiModel.toLowerCase())) return 'free'
+  if (record.paid_only === true) return 'paid'
   const pricing = objectValue(record.pricing)
   if (pricing) {
     const numericPrices = Object.values(pricing)
       .flatMap((value) => typeof value === 'number' || typeof value === 'string' ? [Number(value)] : [])
       .filter(Number.isFinite)
-    if (numericPrices.length && numericPrices.every((value) => value === 0)) return 'free'
+    if (numericPrices.some((value) => value > 0)) return 'paid'
   }
-  if (record.paid_only === false || record.is_free === true) return 'free'
-  if (record.paid_only === true) return 'paid'
+  if (record.is_free === true) return 'free'
+  if (record.free_tier === true || record.has_free_tier === true) return 'free-quota'
   return provider === 'agnes' ? 'free' : 'variable'
+}
+
+const chineseDescriptionByCategory = {
+  chat: '对话、文本生成与知识问答',
+  image: '图片生成、图像编辑与视觉创作',
+  video: '文生视频、图生视频与动态画面创作',
+  audio: '语音识别、语音合成与音频处理',
+  embedding: '文本向量化与语义检索',
+  reranker: '搜索结果重排与相关性优化',
+  '3d': '三维内容生成与空间资产创作',
+}
+
+function chineseModelDescription(record, category) {
+  const rawDescription = stringValue(record, 'description', 'summary')
+  if (/[\u3400-\u9fff]/.test(rawDescription)) return rawDescription.slice(0, 500)
+
+  const source = rawDescription.toLowerCase()
+  const features = []
+  const addFeature = (pattern, label) => {
+    if (pattern.test(source) && !features.includes(label)) features.push(label)
+  }
+  addFeature(/reasoning|chain.of.thought|problem.solving/, '复杂推理')
+  addFeature(/code|coding|programming|software/, '编程与代码任务')
+  addFeature(/multimodal|vision.language|image understanding/, '多模态理解')
+  addFeature(/long.context|context window|document/, '长上下文与文档处理')
+  addFeature(/agent|tool.call|function.call/, '工具调用与智能体工作流')
+  addFeature(/reference.image|image.guided|first.frame|last.frame/, '参考图与关键帧控制')
+  addFeature(/video edit|video extension|extend video/, '视频编辑与续写')
+  addFeature(/text.to.speech|speech synthesis|\btts\b/, '文字转语音')
+  addFeature(/speech.to.text|transcri|\basr\b/, '语音转文字')
+  addFeature(/multilingual|multiple languages/, '多语言任务')
+
+  const base = chineseDescriptionByCategory[category] || chineseDescriptionByCategory.chat
+  return `主要用于${base}${features.length ? `，支持${features.slice(0, 3).join('、')}` : ''}。`
 }
 
 function normalizeProviderModels(provider, payload) {
@@ -267,8 +449,7 @@ function normalizeProviderModels(provider, payload) {
     unique.set(apiModel, {
       apiModel,
       name: (rawName.replace(/^models\//, '') || apiModel).slice(0, 160),
-      description: stringValue(record, 'description', 'summary').slice(0, 500)
-        || '由服务商官方模型目录动态同步',
+      description: chineseModelDescription(record, inferModelCategory(record, apiModel)),
       category: inferModelCategory(record, apiModel),
       pricing: inferModelPricing(provider, record, apiModel),
     })
