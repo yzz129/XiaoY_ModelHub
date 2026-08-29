@@ -7,9 +7,10 @@ interface UseVideoQueueOptions {
   maxConcurrency: number
   onComplete: (asset: GeneratedAsset) => void | Promise<void>
   onNotice: (message: string) => void
+  onFailed?: (job: VideoJob, message: string) => void | Promise<void>
 }
 
-export function useVideoQueue({ maxConcurrency, onComplete, onNotice }: UseVideoQueueOptions) {
+export function useVideoQueue({ maxConcurrency, onComplete, onNotice, onFailed }: UseVideoQueueOptions) {
   const [jobs, setJobsState] = useState<VideoJob[]>([])
   const [hydrated, setHydrated] = useState(false)
   const jobsRef = useRef<VideoJob[]>([])
@@ -60,12 +61,16 @@ export function useVideoQueue({ maxConcurrency, onComplete, onNotice }: UseVideo
       onNotice('一个视频任务已完成，并已保存到 output/videos')
     } catch (caught) {
       const current = jobsRef.current.find((job) => job.id === jobId)
-      if (current?.status !== 'paused') updateJob(jobId, { status: 'failed', remoteTask: current?.remoteTask ?? activeRemoteTask, error: caught instanceof Error ? caught.message : '视频任务失败' })
+      if (current?.status !== 'paused') {
+        const message = caught instanceof Error ? caught.message : '视频任务失败'
+        updateJob(jobId, { status: 'failed', remoteTask: current?.remoteTask ?? activeRemoteTask, error: message })
+        await onFailed?.(current ?? initial, message)
+      }
     } finally {
       running.current.delete(jobId)
       controllers.current.delete(jobId)
     }
-  }, [onComplete, onNotice, setJobs, updateJob])
+  }, [onComplete, onFailed, onNotice, setJobs, updateJob])
 
   useEffect(() => {
     if (!hydrated) return

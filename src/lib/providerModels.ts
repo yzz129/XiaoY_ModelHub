@@ -2,6 +2,8 @@ import {
   catalogModels,
   categoryLabels,
   dailyRefreshQuotaByProvider,
+  freeModelQuotaByProvider,
+  freeQuotaByProvider,
   providerDefinitionById,
   providerDefinitions,
   sortModelsByPricing,
@@ -33,7 +35,7 @@ export interface ProviderCatalogSync {
   fromCache?: boolean
 }
 
-const cacheKey = 'xiaoy-provider-model-catalog-v8'
+const cacheKey = 'xiaoy-provider-model-catalog-v14'
 const cacheTtlMs = 30 * 60 * 1000
 let pendingSync: Promise<ProviderCatalogSync> | undefined
 
@@ -63,9 +65,13 @@ function toCatalogModel(providerId: string, model: NonNullable<ProviderModelsRes
   const category = model.category ?? 'chat'
   const name = model.name?.trim() || apiModel
   const pricing = model.pricing ?? 'variable'
-  const dailyRefreshQuota = pricing === 'daily-refresh'
+  const dailyRefreshQuota = (pricing === 'daily-refresh'
+    || (pricing === 'free' && providerId === 'openrouter'))
     ? dailyRefreshQuotaByProvider[providerId]
     : undefined
+  const freeQuota = pricing === 'free-quota' ? freeQuotaByProvider[providerId] : undefined
+  const freeModelQuota = pricing === 'free' ? freeModelQuotaByProvider[providerId] : undefined
+  const quotaDescription = dailyRefreshQuota ?? freeQuota ?? freeModelQuota
   return {
     id: `live:${providerId}:${apiModel}`,
     apiModel,
@@ -74,18 +80,25 @@ function toCatalogModel(providerId: string, model: NonNullable<ProviderModelsRes
     providerId,
     category,
     pricing,
-    quota: dailyRefreshQuota?.quota ?? (providerId === 'agnes'
+    quota: quotaDescription?.quota ?? (providerId === 'agnes'
       ? '当前输入和输出 Token 均为 $0；免费使用仍受 RPM、RPD 与并发限制'
       : '价格、配额和区域可用性以服务商控制台实时信息为准'),
-    quotaLookup: dailyRefreshQuota?.quotaLookup ?? (providerId === 'agnes'
+    quotaLookup: quotaDescription?.quotaLookup ?? (providerId === 'agnes'
       ? 'Agnes Token 方案页查看当前限流规则'
       : '模型由服务商官方目录动态同步'),
-    integration: 'catalog',
+    integration: category === 'chat' && openAiCompatibleChatProviders.has(providerId) ? 'ready' : 'catalog',
     description: localizeModelDescription(model.description, category, provider.name),
     docsUrl: provider.docsUrl,
     keyUrl: provider.keyUrl,
   }
 }
+
+const openAiCompatibleChatProviders = new Set([
+  'agnes', 'alibaba', 'aimlapi', 'ark', 'baidu', 'cerebras', 'cohere', 'deepinfra',
+  'deepseek', 'fireworks', 'groq', 'hyperbolic', 'minimax', 'mistral', 'modelscope',
+  'moonshot', 'novita', 'nvidia', 'openai', 'openrouter', 'perplexity', 'pollinations',
+  'sambanova', 'scaleway', 'siliconflow', 'stepfun', 'together', 'xai', 'zhipu',
+])
 
 const categoryUseCases: Record<ModelCategory, string> = {
   chat: '对话、文本生成与知识问答',
@@ -155,8 +168,14 @@ async function runProviderPool(providerIds: string[], concurrency = 4) {
 
 export function mergeProviderCatalog(discoveredModels: CatalogModel[], baseModels = catalogModels) {
   const merged = new Map<string, CatalogModel>()
+  const discoveredProviders = new Set(discoveredModels.map((model) => model.providerId))
+  const completeLiveCatalogProviders = new Set(['openrouter', 'pollinations', 'groq', 'gemini', 'modelscope', 'minimax'])
+  for (const model of baseModels) {
+    if (discoveredProviders.has(model.providerId) && completeLiveCatalogProviders.has(model.providerId)) continue
+    merged.set(`${model.providerId}:${model.apiModel}`, model)
+  }
+  // Live provider metadata is authoritative; local rows are only offline fallbacks.
   for (const model of discoveredModels) merged.set(`${model.providerId}:${model.apiModel}`, model)
-  for (const model of baseModels) merged.set(`${model.providerId}:${model.apiModel}`, model)
   return sortModelsByPricing([...merged.values()])
 }
 

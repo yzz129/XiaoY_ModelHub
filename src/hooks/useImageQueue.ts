@@ -8,9 +8,10 @@ interface UseImageQueueOptions {
   onComplete: (assets: GeneratedAsset[]) => void | Promise<void>
   onNotice: (message: string) => void
   onError: (message: string) => void
+  onFailed?: (job: ImageJob, message: string) => void | Promise<void>
 }
 
-export function useImageQueue({ onComplete, onNotice, onError }: UseImageQueueOptions) {
+export function useImageQueue({ onComplete, onNotice, onError, onFailed }: UseImageQueueOptions) {
   const [jobs, setJobsState] = useState<ImageJob[]>([])
   const [hydrated, setHydrated] = useState(false)
   const jobsRef = useRef<ImageJob[]>([])
@@ -62,11 +63,12 @@ export function useImageQueue({ onComplete, onNotice, onError }: UseImageQueueOp
       const message = caught instanceof Error ? caught.message : '图片任务失败'
       updateJob(jobId, { status: 'failed', error: message })
       onError(message)
+      await onFailed?.(initial, message)
     } finally {
       running.current.delete(jobId)
       controllers.current.delete(jobId)
     }
-  }, [onComplete, onError, onNotice, setJobs, updateJob])
+  }, [onComplete, onError, onFailed, onNotice, setJobs, updateJob])
 
   useEffect(() => {
     if (!hydrated || running.current.size) return

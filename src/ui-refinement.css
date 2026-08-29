@@ -1326,6 +1326,11 @@ dialog.model-center.marketplace:not([open]) {
   color: #556177;
 }
 
+.portal-theme .hero-media {
+  width: 100%;
+  height: 100%;
+}
+
 .portal-theme .empty-chips button {
   border-color: #e0e4eb;
   background: #fff;
@@ -1786,6 +1791,33 @@ dialog.model-center.marketplace:not([open]) {
 }
 
 .creative-model-list { display: grid; gap: 9px; }
+.creative-model-search {
+  height: 38px;
+  margin: -4px 0 10px;
+  padding: 0 10px;
+  border: 1px solid #e2e3ec;
+  border-radius: 10px;
+  background: #fff;
+  color: #989bad;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.creative-model-search svg { width: 15px; flex: none; }
+.creative-model-search input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: #3d3f52; font: inherit; font-size: 12px; }
+.creative-model-empty { margin: 8px 0; color: #8d90a2; font-size: 12px; text-align: center; }
+.creative-model-list > button.creative-model-more,
+.chat-model-options > button.creative-model-more {
+  min-height: 38px;
+  border: 1px dashed #cfc4fa;
+  border-radius: 10px;
+  background: #faf8ff;
+  color: #7654eb;
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
 .creative-model-list > button {
   width: 100%;
   min-height: 70px;
@@ -2566,6 +2598,8 @@ body::-webkit-scrollbar,
     gap: 6px;
   }
 
+  .creative-model-search.mobile { margin: 0 3px 8px; }
+
   .chat-model-options > button {
     width: 100%;
     min-height: 58px;
@@ -2960,6 +2994,44 @@ body::-webkit-scrollbar,
   font-weight: 900;
 }
 
+/* Keep the question navigator beside the conversation on wide screens. */
+@media (min-width: 901px) {
+  .chat-scroll {
+    position: relative;
+    padding-left: 146px;
+  }
+
+  .chat-scroll > .question-nodes {
+    position: absolute;
+    top: 8px;
+    left: 0;
+    width: 126px;
+    max-width: 126px;
+    margin: 0;
+    padding: 6px;
+    display: grid;
+    grid-template-columns: 1fr;
+    align-content: start;
+  }
+
+  .chat-scroll > .question-nodes button {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .chat-scroll > .question-nodes {
+    position: sticky;
+    top: 0;
+    width: auto;
+    max-width: none;
+    margin: 0 auto 10px;
+    padding: 5px;
+    display: flex;
+  }
+}
+
 .chat-message-head {
   min-height: 22px;
   display: flex;
@@ -3069,6 +3141,58 @@ body::-webkit-scrollbar,
   border: 0;
   border-top: 1px solid #e5e5ed;
 }
+
+.markdown-table-wrap {
+  width: 100%;
+  margin: 12px 0;
+  border: 1px solid #e4deee;
+  border-radius: 10px;
+  background: #fff;
+  overflow-x: auto;
+}
+
+.markdown-content table {
+  width: 100%;
+  min-width: 420px;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.markdown-content th,
+.markdown-content td {
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-content th {
+  border-bottom: 1px solid #ddd4eb;
+  background: #f7f3fd;
+  color: #30283f;
+  font-weight: 800;
+}
+
+.markdown-content td {
+  border-top: 1px solid #eee9f4;
+  color: #4f475d;
+}
+
+.markdown-content tbody tr:first-child td {
+  border-top: 0;
+}
+
+.markdown-content tbody tr:nth-child(even) td {
+  background: #fcfaff;
+}
+
+.markdown-content th + th,
+.markdown-content td + td {
+  border-left: 1px solid #eee9f4;
+}
+
+.markdown-content .align-center { text-align: center; }
+.markdown-content .align-right { text-align: right; }
 
 .markdown-gap {
   display: block;

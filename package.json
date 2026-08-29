@@ -6,8 +6,12 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 43129 --strictPort",
     "dev:backend": "wrangler pages dev dist --port 8788",
+    "dev:agent": "wrangler dev --config wrangler.agent.jsonc --test-scheduled",
+    "deploy:agent": "wrangler deploy --config wrangler.agent.jsonc",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "node --test tests/agent-workflow.test.js tests/agent-runtime.test.js",
+    "test:ui": "node --test tests/agent-pet-ui.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -27,6 +31,7 @@
     "eslint-plugin-react-hooks": "latest",
     "eslint-plugin-react-refresh": "latest",
     "globals": "latest",
+    "playwright": "^1.62.1",
     "typescript": "latest",
     "typescript-eslint": "latest"
   }

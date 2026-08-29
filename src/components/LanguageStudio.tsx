@@ -17,6 +17,7 @@ import {
   PencilLine,
   Plus,
   Reply,
+  Search,
   Send,
   Square,
   Trash2,
@@ -81,6 +82,7 @@ interface SpeechRecognitionLike {
 const conversationsKey = 'xiaoy_language_conversations_v2'
 const legacyMessagesKey = 'xiaoy_language_messages_v1'
 const activeConversationKey = 'xiaoy_language_active_conversation_v2'
+const initialModelLimit = 40
 
 function createConversation(modelId = ''): Conversation {
   const now = Date.now()
@@ -176,6 +178,8 @@ export function LanguageStudio({ models: availableModels = languageModels, selec
   const [historyOpen, setHistoryOpen] = useState(false)
   const [messageMenuId, setMessageMenuId] = useState('')
   const [documentDraft, setDocumentDraft] = useState<DocumentDraft>()
+  const [modelQuery, setModelQuery] = useState('')
+  const [modelLimit, setModelLimit] = useState(initialModelLimit)
   const abortRef = useRef<AbortController | undefined>(undefined)
   const speechRef = useRef<SpeechRecognitionLike | undefined>(undefined)
   const promptRef = useRef<HTMLTextAreaElement>(null)
@@ -188,6 +192,15 @@ export function LanguageStudio({ models: availableModels = languageModels, selec
   const messages = activeConversation?.messages ?? []
   const hasKey = hasCreativeProviderKey(model.providerId)
   const supportsImages = supportsLanguageImageInput(model)
+  const filteredModels = useMemo(() => {
+    const needle = modelQuery.trim().toLowerCase()
+    const matches = needle
+      ? availableModels.filter((item) => `${item.name} ${item.provider} ${item.apiModel}`.toLowerCase().includes(needle))
+      : availableModels
+    if (!matches.some((item) => item.id === model.id)) return matches
+    return [model, ...matches.filter((item) => item.id !== model.id)]
+  }, [availableModels, model, modelQuery])
+  const visibleModels = filteredModels.slice(0, modelLimit)
 
   useEffect(() => {
     localStorage.setItem(conversationsKey, JSON.stringify(persistedConversations(conversations.slice(0, 40))))
@@ -396,11 +409,14 @@ export function LanguageStudio({ models: availableModels = languageModels, selec
       <div className="creative-studio-grid">
         <aside className="creative-config-panel language-config-panel">
           <div className="creative-section-head"><div><small>MODEL</small><strong>选择语言模型</strong></div><button type="button" onClick={onOpenModels}>模型广场</button></div>
+          <label className="creative-model-search"><Search /><input aria-label="搜索可用语言模型" value={modelQuery} onChange={(event) => { setModelQuery(event.target.value); setModelLimit(initialModelLimit) }} placeholder={`搜索 ${availableModels.length} 个模型`} /></label>
           <div className="creative-model-list">
-            {availableModels.map((item) => <button type="button" key={item.id} className={item.id === model.id ? 'active' : ''} aria-pressed={item.id === model.id} onClick={() => onModelChange(item.id)}>
+            {visibleModels.map((item) => <button type="button" key={item.id} className={item.id === model.id ? 'active' : ''} aria-pressed={item.id === model.id} onClick={() => onModelChange(item.id)}>
               <span className="model-letter">{item.name.slice(0, 1)}</span>
               <span><strong>{item.name}<b className={`inline-price ${item.pricing}`}>{pricingLabels[item.pricing]}</b></strong><small>{item.provider} · {item.description}</small></span>
             </button>)}
+            {!visibleModels.length && <p className="creative-model-empty">没有匹配的语言模型</p>}
+            {filteredModels.length > visibleModels.length && <button type="button" className="creative-model-more" onClick={() => setModelLimit((current) => current + initialModelLimit)}>再显示 {Math.min(initialModelLimit, filteredModels.length - visibleModels.length)} 个</button>}
           </div>
           <div className="conversation-side-head"><div><small>HISTORY</small><strong>历史对话</strong></div><button type="button" onClick={startNewConversation}><Plus /> 新建</button></div>
           {renderConversationList()}
@@ -422,12 +438,15 @@ export function LanguageStudio({ models: availableModels = languageModels, selec
             <button type="button" className="chat-model-backdrop" aria-label="关闭模型选择" onClick={() => setModelMenuOpen(false)} />
             <div className="chat-model-menu" role="listbox" aria-label="选择语言模型">
               <div className="chat-model-menu-head"><div><small>MODEL</small><strong>选择语言模型</strong></div><button type="button" onClick={() => { setModelMenuOpen(false); onOpenModels() }}>模型广场</button></div>
+              <label className="creative-model-search mobile"><Search /><input aria-label="搜索语言模型" value={modelQuery} onChange={(event) => { setModelQuery(event.target.value); setModelLimit(initialModelLimit) }} placeholder={`搜索 ${availableModels.length} 个模型`} /></label>
               <div className="chat-model-options">
-                {availableModels.map((item) => <button type="button" role="option" aria-selected={item.id === model.id} key={item.id} className={item.id === model.id ? 'selected' : ''} onClick={() => { onModelChange(item.id); setModelMenuOpen(false) }}>
+                {visibleModels.map((item) => <button type="button" role="option" aria-selected={item.id === model.id} key={item.id} className={item.id === model.id ? 'selected' : ''} onClick={() => { onModelChange(item.id); setModelMenuOpen(false) }}>
                   <span className="model-letter">{item.name.slice(0, 1)}</span>
                   <span><strong>{item.name}<b className={`inline-price ${item.pricing}`}>{pricingLabels[item.pricing]}</b></strong><small>{item.provider} · {item.description}</small></span>
                   {item.id === model.id && <Check />}
                 </button>)}
+                {!visibleModels.length && <p className="creative-model-empty">没有匹配的语言模型</p>}
+                {filteredModels.length > visibleModels.length && <button type="button" className="creative-model-more" onClick={() => setModelLimit((current) => current + initialModelLimit)}>再显示 {Math.min(initialModelLimit, filteredModels.length - visibleModels.length)} 个</button>}
               </div>
             </div>
           </>}

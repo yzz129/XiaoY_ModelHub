@@ -3,6 +3,24 @@ import {
   encryptCredentialPayload,
   maskCredential,
 } from '../_secure_keys.js'
+import {
+  agentState,
+  cancelTask,
+  deleteConversation,
+  deleteMemory,
+  executeDueAgentTasks,
+  runAgent,
+  saveFeedback,
+} from '../_agent_runtime.js'
+import {
+  advanceProductionWorkflow,
+  approveProductionWorkflow,
+  createProductionWorkflow,
+  getProductionWorkflow,
+  listProductionWorkflows,
+  reportProductionCommand,
+  rollbackProductionWorkflow,
+} from '../_agent_workflow.js'
 
 const sessionCookieName = 'xiaoy_session'
 const sessionLifetimeMs = 30 * 24 * 60 * 60 * 1000
@@ -331,7 +349,7 @@ async function accountCredentials(env, userId) {
     WHERE user_id = ?
     ORDER BY provider_id
   `).bind(userId).all(),
-    env.DB.prepare('SELECT provider_id FROM global_provider_credentials ORDER BY provider_id').all(),
+    env.DB.prepare('SELECT provider_id, encrypted_payload, iv FROM global_provider_credentials ORDER BY provider_id').all(),
   ])
   const credentials = await Promise.all((personalRows.results || []).map(async (row) => {
     const value = await decryptCredentialPayload(env.KEY_ENCRYPTION_SECRET, row.encrypted_payload, row.iv)
@@ -339,29 +357,38 @@ async function accountCredentials(env, userId) {
       providerId: row.provider_id,
       maskedApiKey: maskCredential(value.apiKey),
       accountIdConfigured: Boolean(value.accountId),
+      authMode: value.mode === 'tencent-cloud' ? 'tencent-cloud' : 'tokenhub',
       updatedAt: row.updated_at,
     }
   }))
+  const globalAuthModes = await Promise.all((globalRows.results || []).map(async (row) => {
+    const value = await decryptCredentialPayload(env.KEY_ENCRYPTION_SECRET, row.encrypted_payload, row.iv)
+    return [row.provider_id, value.mode === 'tencent-cloud' ? 'tencent-cloud' : 'tokenhub']
+  }))
   const configuredProviders = [...new Set([
-    ...credentials.filter((item) => item.maskedApiKey).map((item) => item.providerId),
+    ...credentials.filter((item) => item.maskedApiKey || item.authMode === 'tencent-cloud').map((item) => item.providerId),
     ...(globalRows.results || []).map((row) => row.provider_id),
   ])]
   const personalProviders = credentials
-    .filter((item) => item.maskedApiKey)
+    .filter((item) => item.maskedApiKey || item.authMode === 'tencent-cloud')
     .map((item) => item.providerId)
-  return { credentials, configuredProviders, personalProviders }
+  return { credentials, configuredProviders, personalProviders, authModes: Object.fromEntries([
+    ...credentials.map((item) => [item.providerId, item.authMode]),
+    ...globalAuthModes,
+  ]) }
 }
 
 async function saveAccountCredential(env, userId, providerId, body) {
   const apiKey = cleanText(body.apiKey, 8_000).trim()
   const accountId = cleanText(body.accountId, 500).trim()
-  if (!apiKey && !accountId) {
-    await env.DB.prepare(`
-      DELETE FROM user_provider_credentials WHERE user_id = ? AND provider_id = ?
-    `).bind(userId, providerId).run()
-    return { deleted: true }
+  const mode = body.mode === 'tencent-cloud' ? 'tencent-cloud' : 'tokenhub'
+  const secretId = cleanText(body.secretId, 256).trim()
+  const secretKey = cleanText(body.secretKey, 512).trim()
+  const region = cleanText(body.region, 64).trim() || 'ap-guangzhou'
+  if ((mode === 'tokenhub' && !apiKey) || (mode === 'tencent-cloud' && (!secretId || !secretKey))) {
+    throw new Error(mode === 'tencent-cloud' ? '腾讯云 SecretId 和 SecretKey 不能为空' : 'API Key 不能为空')
   }
-  const encrypted = await encryptCredentialPayload(env.KEY_ENCRYPTION_SECRET, { apiKey, accountId })
+  const encrypted = await encryptCredentialPayload(env.KEY_ENCRYPTION_SECRET, { apiKey, accountId, mode, secretId, secretKey, region })
   const now = Date.now()
   await env.DB.prepare(`
     INSERT INTO user_provider_credentials (
@@ -410,7 +437,8 @@ async function adminCredentialList(env) {
       userId: row.user_id,
       email: row.email,
       displayName: row.display_name,
-      maskedApiKey: maskCredential(credentials.apiKey),
+      maskedApiKey: maskCredential(credentials.apiKey || credentials.secretId),
+      authMode: credentials.mode === 'tencent-cloud' ? 'tencent-cloud' : 'tokenhub',
       accountId: credentials.accountId || '',
       updatedAt: row.updated_at,
     }
@@ -421,7 +449,8 @@ async function adminCredentialList(env) {
       id: row.id,
       scope: 'global',
       providerId: row.provider_id,
-      maskedApiKey: maskCredential(credentials.apiKey),
+      maskedApiKey: maskCredential(credentials.apiKey || credentials.secretId),
+      authMode: credentials.mode === 'tencent-cloud' ? 'tencent-cloud' : 'tokenhub',
       accountId: credentials.accountId || '',
       updatedAt: row.updated_at,
     }
@@ -444,12 +473,37 @@ async function adminCredentialSecret(env, scope, id) {
     row.encrypted_payload,
     row.iv,
   )
-  return { apiKey: credentials.apiKey || '' }
+  return {
+    apiKey: credentials.apiKey || '',
+    secretId: credentials.secretId || '',
+    secretKey: credentials.secretKey || '',
+    region: credentials.region || '',
+    authMode: credentials.mode === 'tencent-cloud' ? 'tencent-cloud' : 'tokenhub',
+  }
 }
 
 async function saveGlobalCredential(env, adminId, providerId, body) {
   const apiKey = cleanText(body.apiKey, 8_000).trim()
   const accountId = cleanText(body.accountId, 500).trim()
+  if (body.mode === 'tencent-cloud') {
+    const secretId = cleanText(body.secretId, 256).trim()
+    const secretKey = cleanText(body.secretKey, 512).trim()
+    const region = cleanText(body.region, 64).trim() || 'ap-guangzhou'
+    if (!secretId || !secretKey) throw new Error('腾讯云凭据不完整')
+    const encrypted = await encryptCredentialPayload(env.KEY_ENCRYPTION_SECRET, { apiKey: '', accountId, mode: 'tencent-cloud', secretId, secretKey, region })
+    const now = Date.now()
+    await env.DB.prepare(`
+      INSERT INTO global_provider_credentials (
+        id, provider_id, encrypted_payload, iv, created_by, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(provider_id) DO UPDATE SET
+        encrypted_payload = excluded.encrypted_payload,
+        iv = excluded.iv,
+        created_by = excluded.created_by,
+        updated_at = excluded.updated_at
+    `).bind(crypto.randomUUID(), providerId, encrypted.encryptedPayload, encrypted.iv, adminId, now, now).run()
+    return { providerId, updatedAt: now }
+  }
   if (!apiKey) throw new Error('全局 API Key 不能为空')
   const encrypted = await encryptCredentialPayload(env.KEY_ENCRYPTION_SECRET, { apiKey, accountId })
   const now = Date.now()
@@ -579,10 +633,20 @@ export async function onRequest(context) {
     if (path === '/api/auth/register' && request.method === 'POST') return await register(context)
     if (path === '/api/auth/login' && request.method === 'POST') return await login(context)
     if (path === '/api/auth/logout' && request.method === 'POST') return await logout(context)
+    if (path === '/api/catalog/custom-models' && request.method === 'GET') {
+      return json({ models: await listCustomModels(env, false) })
+    }
+    if (path === '/api/agent/scheduled/run' && request.method === 'POST') {
+      const expected = typeof env.SCHEDULER_HEALTH_TOKEN === 'string' ? env.SCHEDULER_HEALTH_TOKEN : ''
+      const supplied = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') || ''
+      if (!expected || !constantTimeEqual(expected, supplied)) return errorResponse('接口不存在', 404)
+      const results = await executeDueAgentTasks(env)
+      return json({ ok: true, processed: results.length, results })
+    }
 
     const user = await currentUser(env, request)
     if (path === '/api/auth/me' && request.method === 'GET') {
-      return user ? json({ user: publicUser(user) }) : errorResponse('未登录', 401)
+      return json({ user: user ? publicUser(user) : null })
     }
     if (!user) return errorResponse('请先登录', 401)
 
@@ -613,6 +677,54 @@ export async function onRequest(context) {
       return json({ id }, 201)
     }
 
+    if (path === '/api/agent/run' && request.method === 'POST') {
+      const body = await request.json().catch(() => ({}))
+      return json(await runAgent(env, user.id, body, request.signal))
+    }
+    if (path === '/api/agent/state' && request.method === 'GET') {
+      return json(await agentState(env, user.id))
+    }
+    const agentConversationMatch = path.match(/^\/api\/agent\/conversations\/([^/]+)$/)
+    if (agentConversationMatch && request.method === 'DELETE') {
+      await deleteConversation(env, user.id, decodeURIComponent(agentConversationMatch[1]))
+      return json({ ok: true })
+    }
+    const agentMemoryMatch = path.match(/^\/api\/agent\/memories\/([^/]+)$/)
+    if (agentMemoryMatch && request.method === 'DELETE') {
+      await deleteMemory(env, user.id, decodeURIComponent(agentMemoryMatch[1]))
+      return json({ ok: true })
+    }
+    const agentTaskMatch = path.match(/^\/api\/agent\/tasks\/([^/]+)$/)
+    if (agentTaskMatch && request.method === 'DELETE') {
+      await cancelTask(env, user.id, decodeURIComponent(agentTaskMatch[1]))
+      return json({ ok: true })
+    }
+    if (path === '/api/agent/feedback' && request.method === 'POST') {
+      const body = await request.json().catch(() => ({}))
+      return json(await saveFeedback(env, user.id, body))
+    }
+    if (path === '/api/agent/workflows' && request.method === 'GET') {
+      return json({ workflows: await listProductionWorkflows(env, user.id) })
+    }
+    if (path === '/api/agent/workflows' && request.method === 'POST') {
+      const body = await request.json().catch(() => ({}))
+      return json(await createProductionWorkflow(env, user.id, body), 201)
+    }
+    const agentWorkflowMatch = path.match(/^\/api\/agent\/workflows\/([^/]+)$/)
+    if (agentWorkflowMatch && request.method === 'GET') {
+      return json(await getProductionWorkflow(env, user.id, decodeURIComponent(agentWorkflowMatch[1])))
+    }
+    const agentWorkflowActionMatch = path.match(/^\/api\/agent\/workflows\/([^/]+)\/(advance|approve|report|rollback)$/)
+    if (agentWorkflowActionMatch && request.method === 'POST') {
+      const workflowId = decodeURIComponent(agentWorkflowActionMatch[1])
+      const action = agentWorkflowActionMatch[2]
+      const body = await request.json().catch(() => ({}))
+      if (action === 'advance') return json(await advanceProductionWorkflow(env, user.id, workflowId, request.signal))
+      if (action === 'approve') return json(await approveProductionWorkflow(env, user.id, workflowId))
+      if (action === 'report') return json(await reportProductionCommand(env, user.id, workflowId, body))
+      return json(await rollbackProductionWorkflow(env, user.id, workflowId, cleanText(body.stepId, 80)))
+    }
+
     if (path === '/api/credentials' && request.method === 'GET') {
       return json(await accountCredentials(env, user.id))
     }
@@ -631,10 +743,6 @@ export async function onRequest(context) {
         return json({ ok: true })
       }
     }
-    if (path === '/api/catalog/custom-models' && request.method === 'GET') {
-      return json({ models: await listCustomModels(env, false) })
-    }
-
     if (!path.startsWith('/api/admin/')) return errorResponse('接口不存在', 404)
     if (user.role !== 'admin') return errorResponse('需要管理员权限', 403)
 

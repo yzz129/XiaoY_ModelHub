@@ -1,38 +1,40 @@
 import type { GenerationSettings, GeneratedAsset, PendingThreeDTask, PendingVideoTask, SettingsSnapshot } from '../types/generation'
 import { compilePrompt } from './prompt'
 import { styleTemplates } from '../data/templates'
-import { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL, imageModels, videoModels } from '../data/models'
-import { isProviderConfigured } from './providerCredentials'
+import { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL, getThreeDModel, imageModels, videoModels } from '../data/models'
+import { getProviderAuthMode, isProviderConfigured } from './providerCredentials'
 
 const config = {
   baseUrl: import.meta.env.VITE_ARK_BASE_URL ?? 'https://ark.cn-beijing.volces.com/api/v3',
   agnesBaseUrl: (import.meta.env.VITE_AGNES_BASE_URL ?? 'https://apihub.agnes-ai.com/v1').replace(/\/$/, ''),
   siliconFlowBaseUrl: (import.meta.env.VITE_SILICONFLOW_BASE_URL ?? 'https://api.siliconflow.cn/v1').replace(/\/$/, ''),
   pollinationsBaseUrl: (import.meta.env.VITE_POLLINATIONS_BASE_URL ?? 'https://gen.pollinations.ai').replace(/\/$/, ''),
+  tencentBaseUrl: (import.meta.env.VITE_TENCENT_TOKENHUB_BASE_URL ?? 'https://tokenhub.tencentmaas.com').replace(/\/$/, ''),
   threeDModel: import.meta.env.VITE_ARK_3D_MODEL ?? 'doubao-seed3d-2-0-260328',
   hyperThreeDModel: import.meta.env.VITE_ARK_HYPER3D_MODEL ?? 'hyper3d-gen2-260112',
 }
 
 export const arkModels = { image: DEFAULT_IMAGE_MODEL, video: DEFAULT_VIDEO_MODEL, threeD: config.threeDModel, hyperThreeD: config.hyperThreeDModel }
 
-function providerForSettings(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel'>) {
-  if (settings.kind === '3d') return 'ark'
+function providerForSettings(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel' | 'threeDModel'>) {
+  if (settings.kind === '3d') return getThreeDModel(settings.threeDModel).provider
   return settings.kind === 'image'
     ? (imageModels.find((model) => model.id === settings.imageModel) ?? imageModels[0]).provider
     : (videoModels.find((model) => model.id === settings.videoModel) ?? videoModels[0]).provider
 }
 
-export function hasApiKeyForSettings(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel'>) {
+export function hasApiKeyForSettings(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel' | 'threeDModel'>) {
   return isProviderConfigured(providerForSettings(settings))
 }
 
-export function getProviderName(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel'>) {
+export function getProviderName(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel' | 'threeDModel'>) {
   const provider = providerForSettings(settings)
   return provider === 'agnes' ? 'Agnes AI'
     : provider === 'siliconflow' ? 'SiliconFlow'
       : provider === 'cloudflare' ? 'Cloudflare Workers AI'
         : provider === 'pollinations' ? 'Pollinations'
-          : '火山方舟'
+          : provider === 'tencent' ? '腾讯混元 TokenHub'
+            : '火山方舟'
 }
 
 function snapshot(settings: GenerationSettings): SettingsSnapshot {
@@ -102,12 +104,14 @@ async function generationRequest<T>(
   payload: Record<string, unknown>,
   signal?: AbortSignal,
   responseType: 'json' | 'binary' = 'json',
+  action?: string,
+  version?: string,
 ): Promise<T> {
   const response = await fetch('/__generation_request', {
     method: 'POST',
     signal,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider, url, method, payload, responseType }),
+    body: JSON.stringify({ provider, url, method, payload, responseType, ...(action ? { action, version } : {}) }),
   })
   const result = await response.json().catch(() => ({})) as T & { error?: string }
   if (!response.ok) throw new Error(result.error || `服务商请求失败（${response.status}）`)
@@ -136,6 +140,128 @@ async function uploadPollinationsImage(image: { dataUrl: string; mimeType: strin
   return result.url
 }
 
+interface TencentAsyncImageResponse {
+  id?: string
+  status?: string
+  data?: Array<{ url?: string; b64_json?: string }>
+  error?: { message?: string } | string
+}
+
+interface TencentNativeImageResponse {
+  Response?: {
+    ResultImage?: string
+    JobId?: string
+    JobStatusCode?: string
+    ResultImageUrls?: string[]
+    Error?: { Message?: string }
+  }
+}
+
+interface TencentNativeThreeDResponse {
+  error?: { message?: string }
+  Response?: {
+    JobId?: string
+    Status?: string
+    ResultFile3Ds?: Array<{ Type?: string; Url?: string }>
+    Error?: { Message?: string }
+  }
+}
+
+async function tencentNativeRequest<T>(host: string, action: string, version: string, payload: Record<string, unknown>, signal?: AbortSignal) {
+  return generationRequest<T>('tencent', host, 'POST', payload, signal, 'json', action, version)
+}
+
+function base64Payload(dataUrl: string) {
+  return dataUrl.split(',', 2)[1] ?? dataUrl
+}
+
+async function generateTencentNativeImage(model: string, prompt: string, ratio: string, referenceImage: string | undefined, signal?: AbortSignal) {
+  const resolutionByRatio: Record<string, string> = {
+    '1:1': '1024:1024', '4:3': '1024:768', '3:4': '768:1024', '16:9': '1280:720', '9:16': '720:1280',
+  }
+  if (model === 'hy-image-lite') {
+    const result = await tencentNativeRequest<TencentNativeImageResponse>(
+      'https://hunyuan.tencentcloudapi.com/',
+      'TextToImageLite',
+      '2023-09-01',
+      { Prompt: prompt.slice(0, 256), Resolution: resolutionByRatio[ratio] ?? '1024:1024', RspImgType: 'url' },
+      signal,
+    )
+    const url = result.Response?.ResultImage
+    if (!url) throw new Error(result.Response?.Error?.Message || '腾讯云混元未返回图片')
+    return { data: [{ url }] }
+  }
+  const submitted = await tencentNativeRequest<TencentNativeImageResponse>(
+    'https://hunyuan.tencentcloudapi.com/',
+    'SubmitHunyuanImageJob',
+    '2023-09-01',
+    { Prompt: prompt.slice(0, 1024), Resolution: resolutionByRatio[ratio] ?? '1024:1024', ...(referenceImage ? { ContentImage: { ImageBase64: base64Payload(referenceImage) } } : {}) },
+    signal,
+  )
+  const jobId = submitted.Response?.JobId
+  if (!jobId) throw new Error(submitted.Response?.Error?.Message || '腾讯云混元未返回图片任务 ID')
+  const startedAt = Date.now()
+  let attempt = 0
+  while (Date.now() - startedAt < 15 * 60 * 1000) {
+    const result = await tencentNativeRequest<TencentNativeImageResponse>('https://hunyuan.tencentcloudapi.com/', 'QueryHunyuanImageJob', '2023-09-01', { JobId: jobId }, signal)
+    const response = result.Response
+    const code = response?.JobStatusCode
+    const url = response?.ResultImage || response?.ResultImageUrls?.[0]
+    if (url && code === '5') return { data: [{ url }] }
+    if (code === '4') throw new Error(response?.Error?.Message || '腾讯云混元图片任务失败')
+    await wait(attempt++ < 10 ? 2000 : 5000, signal)
+  }
+  throw new Error('腾讯云混元图片任务仍在生成 请稍后重试')
+}
+
+async function generateTencentImage(model: string, prompt: string, ratio: string, referenceImage: string | undefined, signal?: AbortSignal) {
+  if (getProviderAuthMode('tencent') === 'tencent-cloud') return generateTencentNativeImage(model, prompt, ratio, referenceImage, signal)
+  const resolutionByRatio: Record<string, string> = {
+    '1:1': '1024:1024',
+    '4:3': '1024:768',
+    '3:4': '768:1024',
+    '16:9': '1280:720',
+    '9:16': '720:1280',
+  }
+  if (model === 'hy-image-lite') {
+    return durableJsonPost<TencentAsyncImageResponse>(
+      `tencent-image-${crypto.randomUUID()}`,
+      'tencent',
+      `${config.tencentBaseUrl}/v1/api/image/lite`,
+      { model, prompt, resolution: resolutionByRatio[ratio], rsp_img_type: 'url' },
+      signal,
+    )
+  }
+
+  const submitted = await durableJsonPost<TencentAsyncImageResponse>(
+    `tencent-image-${crypto.randomUUID()}`,
+    'tencent',
+    `${config.tencentBaseUrl}/v1/api/image/submit`,
+    { model, prompt, resolution: resolutionByRatio[ratio], ...(referenceImage ? { images: [referenceImage] } : {}) },
+    signal,
+  )
+  if (!submitted.id) throw new Error('腾讯混元未返回图片任务 ID')
+  const startedAt = Date.now()
+  let attempt = 0
+  while (Date.now() - startedAt < 15 * 60 * 1000) {
+    const result = await durableJsonPost<TencentAsyncImageResponse>(
+      `tencent-image-query-${submitted.id}`,
+      'tencent',
+      `${config.tencentBaseUrl}/v1/api/image/query`,
+      { model, id: submitted.id },
+      signal,
+    )
+    const status = (result.status ?? '').toLowerCase()
+    if (result.data?.some((item) => item.url || item.b64_json)) return result
+    if (['failed', 'error', 'cancelled', 'expired'].includes(status)) {
+      const message = typeof result.error === 'string' ? result.error : result.error?.message
+      throw new Error(message || `腾讯混元图片任务已${status === 'cancelled' ? '取消' : '失败'}`)
+    }
+    await wait(attempt++ < 10 ? 2000 : 5000, signal)
+  }
+  throw new Error('腾讯混元图片任务仍在生成，可稍后重试')
+}
+
 export async function generateImage(settings: GenerationSettings, sessionId: string, signal?: AbortSignal, generationJobId: string = crypto.randomUUID()): Promise<GeneratedAsset[]> {
   const template = styleTemplates.find((item) => item.id === settings.styleId)
   const compiledPrompt = compilePrompt(settings, template)
@@ -144,7 +270,9 @@ export async function generateImage(settings: GenerationSettings, sessionId: str
   const referenceImage = settings.firstFrame?.dataUrl
   const imageSizes: Record<string, string> = { '1:1': '1024x1024', '4:3': '1024x768', '3:4': '768x1024', '16:9': '1024x576', '9:16': '576x1024' }
   let response: { data?: Array<{ url?: string; b64_json?: string }>; images?: Array<{ url?: string }>; result?: { image?: string } }
-  if (imageOption.provider === 'agnes') {
+  if (imageOption.provider === 'tencent') {
+    response = await generateTencentImage(imageModel, compiledPrompt, settings.ratio, referenceImage, signal)
+  } else if (imageOption.provider === 'agnes') {
       response = await durableJsonPost<{ data?: Array<{ url?: string; b64_json?: string }> }>(
         `image-${generationJobId}`,
         'agnes',
@@ -230,6 +358,7 @@ interface ThreeDTaskResponse {
   content?: { file_url?: string }
   file_url?: string
   output?: { file_url?: string }
+  data?: Array<{ type?: string; url?: string; preview_image_url?: string }>
   error?: { message?: string }
 }
 
@@ -344,14 +473,50 @@ export async function waitForVideo(task: PendingVideoTask, options: { signal?: A
 }
 
 export async function createThreeDTask(settings: GenerationSettings, sessionId: string, signal?: AbortSignal, requestId: string = crypto.randomUUID()): Promise<PendingThreeDTask> {
-  if (!settings.firstFrame) throw new Error('请先上传用于生成 3D 的参考图片')
+  const model = settings.threeDModel ?? config.threeDModel as GenerationSettings['threeDModel']
+  const provider = getThreeDModel(model).provider
+  if (settings.mode === 'image-to-3d' && !settings.firstFrame) throw new Error('请先上传用于生成 3D 的参考图片')
+  if (settings.mode === 'text-to-3d' && !settings.prompt.trim()) throw new Error('请先描述要生成的 3D 模型')
   const command = settings.prompt.trim() || '--subdivisionlevel medium --fileformat glb'
+  if (provider === 'tencent') {
+    if (getProviderAuthMode('tencent') === 'tencent-cloud') {
+      const selectedModel = model ?? config.threeDModel
+      const nativeModel = selectedModel === 'hy-3d-express' ? undefined : selectedModel.includes('3.1') ? '3.1' : '3.0'
+      const rapid = !nativeModel
+      const payload = settings.mode === 'image-to-3d'
+        ? { ...(nativeModel ? { Model: nativeModel } : {}), ImageBase64: base64Payload(settings.firstFrame!.dataUrl), ResultFormat: 'GLB' }
+        : { ...(nativeModel ? { Model: nativeModel } : {}), Prompt: settings.prompt.trim(), ResultFormat: 'GLB' }
+      const response = await tencentNativeRequest<TencentNativeThreeDResponse>(
+        'https://ai3d.tencentcloudapi.com/',
+        rapid ? 'SubmitHunyuanTo3DRapidJob' : 'SubmitHunyuanTo3DProJob',
+        '2025-05-13',
+        payload,
+        signal,
+      )
+      const taskId = response.Response?.JobId
+      if (!taskId) throw new Error(response.Response?.Error?.Message || '腾讯云混元 3D 未返回任务 ID')
+      return { taskId, provider, compiledPrompt: settings.mode === 'text-to-3d' ? settings.prompt.trim() : '图片转 3D', settings: snapshot(settings), sessionId, createdAt: Date.now() }
+    }
+    const response = await durableJsonPost<ThreeDTaskResponse>(
+      `3d-${requestId}`,
+      'tencent',
+      `${config.tencentBaseUrl}/v1/api/3d/submit`,
+      settings.mode === 'image-to-3d'
+        ? { model, image_base64: settings.firstFrame!.dataUrl.split(',', 2)[1] ?? settings.firstFrame!.dataUrl }
+        : { model, prompt: settings.prompt.trim() },
+      signal,
+    )
+    const taskId = response.id ?? response.task_id
+    if (!taskId) throw new Error('腾讯混元未返回 3D 任务 ID')
+    return { taskId, provider, compiledPrompt: settings.mode === 'text-to-3d' ? settings.prompt.trim() : '图片转 3D', settings: snapshot(settings), sessionId, createdAt: Date.now() }
+  }
+  if (!settings.firstFrame) throw new Error('方舟 3D 模型需要上传一张参考图片')
   const response = await durableJsonPost<ThreeDTaskResponse>(
     `3d-${requestId}`,
     'ark',
     `${config.baseUrl}/contents/generations/tasks`,
     {
-      model: settings.threeDModel ?? config.threeDModel,
+      model,
       content: [
         { type: 'text', text: command },
         { type: 'image_url', image_url: { url: settings.firstFrame.dataUrl } },
@@ -361,17 +526,24 @@ export async function createThreeDTask(settings: GenerationSettings, sessionId: 
   )
   const taskId = response.id ?? response.task_id
   if (!taskId) throw new Error('方舟未返回 3D 任务 ID，请核对当前 API 协议')
-  return { taskId, compiledPrompt: command, settings: snapshot(settings), sessionId, createdAt: Date.now() }
+  return { taskId, provider, compiledPrompt: command, settings: snapshot(settings), sessionId, createdAt: Date.now() }
 }
 
 export async function waitForThreeD(task: PendingThreeDTask, options: { signal?: AbortSignal; onState: (value: string) => void }) {
   const startedAt = Date.now()
   let attempt = 0
   while (Date.now() - startedAt < 30 * 60 * 1000) {
-    const result = await arkFetch<ThreeDTaskResponse>(`/contents/generations/tasks/${task.taskId}`, { method: 'GET', signal: options.signal })
-    const status = (result.status ?? '').toLowerCase()
+    const result = task.provider === 'tencent' && getProviderAuthMode('tencent') === 'tencent-cloud'
+      ? await tencentNativeRequest<TencentNativeThreeDResponse>('https://ai3d.tencentcloudapi.com/', task.settings.threeDModel === 'hy-3d-express' ? 'QueryHunyuanTo3DRapidJob' : 'QueryHunyuanTo3DProJob', '2025-05-13', { JobId: task.taskId }, options.signal)
+      : task.provider === 'tencent'
+      ? await durableJsonPost<ThreeDTaskResponse>(`3d-query-${task.taskId}`, 'tencent', `${config.tencentBaseUrl}/v1/api/3d/query`, { model: task.settings.threeDModel, id: task.taskId }, options.signal)
+      : await arkFetch<ThreeDTaskResponse>(`/contents/generations/tasks/${task.taskId}`, { method: 'GET', signal: options.signal })
+    const nativeResponse = (result as TencentNativeThreeDResponse).Response
+    const status = (nativeResponse?.Status ?? (result as ThreeDTaskResponse).status ?? '').toLowerCase()
     options.onState(status || 'processing')
-    const url = result.content?.file_url ?? result.output?.file_url ?? result.file_url
+    const nativeFile = nativeResponse?.ResultFile3Ds?.find((file) => file.Type?.toLowerCase() === 'glb') ?? nativeResponse?.ResultFile3Ds?.[0]
+    const legacyFile = (result as ThreeDTaskResponse).data?.find((file) => file.type?.toLowerCase() === 'glb') ?? (result as ThreeDTaskResponse).data?.[0]
+    const url = nativeFile?.Url ?? legacyFile?.url ?? (result as ThreeDTaskResponse).content?.file_url ?? (result as ThreeDTaskResponse).output?.file_url ?? (result as ThreeDTaskResponse).file_url
     if (url) return { id: crypto.randomUUID(), taskId: task.taskId, kind: '3d' as const, url, prompt: task.settings.prompt || '图片转 3D', compiledPrompt: task.compiledPrompt, createdAt: Date.now(), settings: task.settings, sessionId: task.sessionId }
     if (['failed', 'error', 'cancelled', 'expired'].includes(status)) throw new Error(result.error?.message || `3D 任务已${status === 'failed' || status === 'error' ? '失败' : status === 'cancelled' ? '取消' : '过期'}`)
     const delay = attempt < 10 ? 2000 : 5000
@@ -388,14 +560,17 @@ export async function refreshAssetUrl(asset: GeneratedAsset, signal?: AbortSigna
   if (asset.outputPath && asset.url.startsWith('/__generated_output/')) return asset.url
   if (!asset.taskId || asset.kind === 'image') throw new Error('这件作品没有可用于刷新链接的任务 ID')
   const agnesVideo = asset.kind === 'video' && asset.settings.videoModel?.startsWith('agnes-')
-  const result = agnesVideo
+  const tencentThreeD = asset.kind === '3d' && getThreeDModel(asset.settings.threeDModel).provider === 'tencent'
+  const result = tencentThreeD
+    ? await durableJsonPost<VideoTaskResponse & ThreeDTaskResponse>(`3d-refresh-${asset.taskId}`, 'tencent', `${config.tencentBaseUrl}/v1/api/3d/query`, { model: asset.settings.threeDModel, id: asset.taskId }, signal)
+    : agnesVideo
     ? await agnesFetch<VideoTaskResponse & ThreeDTaskResponse>(`/agnesapi?video_id=${encodeURIComponent(asset.taskId)}`, { method: 'GET', signal })
     : await arkFetch<VideoTaskResponse & ThreeDTaskResponse>(`/contents/generations/tasks/${asset.taskId}`, { method: 'GET', signal })
   const status = (result.status ?? '').toLowerCase()
   if (['failed', 'error', 'cancelled', 'expired'].includes(status)) throw new Error(result.error?.message || `远端任务状态为 ${status}`)
   const url = asset.kind === 'video'
     ? result.metadata?.url ?? result.content?.video_url ?? result.output?.video_url ?? result.video_url
-    : result.content?.file_url ?? result.output?.file_url ?? result.file_url
-  if (!url) throw new Error(status && status !== 'succeeded' ? `远端任务仍在 ${status}` : '方舟没有返回新的资源链接')
+    : (result.data?.find((file) => file.type?.toLowerCase() === 'glb') ?? result.data?.[0])?.url ?? result.content?.file_url ?? result.output?.file_url ?? result.file_url
+  if (!url) throw new Error(status && status !== 'succeeded' && status !== 'completed' ? `远端任务仍在 ${status}` : '服务商没有返回新的资源链接')
   return url
 }

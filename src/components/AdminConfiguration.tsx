@@ -48,6 +48,10 @@ export function AdminConfiguration({ mode }: AdminConfigurationProps) {
   const [providerId, setProviderId] = useState('openrouter')
   const [apiKey, setApiKey] = useState('')
   const [accountId, setAccountId] = useState('')
+  const [authMode, setAuthMode] = useState<'tokenhub' | 'tencent-cloud'>('tokenhub')
+  const [secretId, setSecretId] = useState('')
+  const [secretKey, setSecretKey] = useState('')
+  const [region, setRegion] = useState('ap-guangzhou')
   const [model, setModel] = useState<CustomModelInput>(emptyModel)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -95,9 +99,11 @@ export function AdminConfiguration({ mode }: AdminConfigurationProps) {
     setBusy(true)
     setMessage('')
     try {
-      await saveGlobalCredential(providerId, { apiKey, accountId })
+      await saveGlobalCredential(providerId, { apiKey, accountId, mode: providerId === 'tencent' ? authMode : undefined, secretId, secretKey, region })
       setApiKey('')
       setAccountId('')
+      setSecretId('')
+      setSecretKey('')
       setMessage(`${provider.name} 全局 Key 已加密保存`)
       const result = await getAdminCredentials()
       setPersonal(result.personal)
@@ -157,6 +163,10 @@ export function AdminConfiguration({ mode }: AdminConfigurationProps) {
       <section className="admin-config-card">
         <header><div><KeyRound /><span><h2>添加全局 API Key</h2><p>普通用户没有个人 Key 时，服务端会自动使用这里的全局 Key。</p></span></div></header>
         <div className="admin-config-form key-form">
+          {providerId === 'tencent' && <>
+            <label><span>接入方式</span><select value={authMode} onChange={(event) => setAuthMode(event.target.value as 'tokenhub' | 'tencent-cloud')}><option value="tokenhub">TokenHub API Key</option><option value="tencent-cloud">腾讯云 SecretId SecretKey</option></select></label>
+            {authMode === 'tencent-cloud' && <><label><span>SecretId</span><input value={secretId} onChange={(event) => setSecretId(event.target.value)} placeholder="输入腾讯云 SecretId" autoComplete="off" /></label><label><span>SecretKey</span><input type="password" value={secretKey} onChange={(event) => { setSecretKey(event.target.value); setApiKey(event.target.value) }} placeholder="输入腾讯云 SecretKey" autoComplete="off" /></label><label><span>Region</span><input value={region} onChange={(event) => setRegion(event.target.value)} placeholder="ap-guangzhou" autoComplete="off" /></label></>}
+          </>}
           <label><span>服务商</span><select value={providerId} onChange={(event) => setProviderId(event.target.value)}>{providerDefinitions.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
           <label><span>API Key</span><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="输入全局 API Key" autoComplete="off" /></label>
           <label><span>Account ID（可选）</span><input value={accountId} onChange={(event) => setAccountId(event.target.value)} placeholder="Cloudflare / Fireworks 等平台需要" /></label>

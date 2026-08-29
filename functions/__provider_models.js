@@ -7,7 +7,16 @@ const publicCatalogProviderIds = {
   cohere: 'cohere',
   gemini: 'google',
   groq: 'groq',
+  minimax: 'minimax-cn',
+  scaleway: 'scaleway',
   siliconflow: 'siliconflow-cn',
+  stepfun: 'stepfun',
+  zhipu: 'zhipuai',
+}
+const retiredModelsByProvider = {
+  alibaba: new Set(['deepseek-r1-distill-llama-8b']),
+  cerebras: new Set(['llama3.1-8b', 'qwen-3-235b-a22b-instruct-2507']),
+  zhipu: new Set(['glm-4.5-flash']),
 }
 let publicCatalogCache
 let publicCatalogCachedAt = 0
@@ -91,6 +100,10 @@ function providerRequest(provider, apiKey, accountId) {
       target = 'https://api.moonshot.cn/v1/models'
       break
     case 'minimax':
+      if (!apiKey) {
+        target = publicCatalogUrl
+        break
+      }
       requireKey('MiniMax')
       target = 'https://api.minimaxi.com/v1/models'
       break
@@ -105,11 +118,6 @@ function providerRequest(provider, apiKey, accountId) {
     case 'perplexity':
       requireKey('Perplexity')
       target = 'https://api.perplexity.ai/v1/models'
-      break
-    case 'github':
-      target = 'https://models.github.ai/catalog/models'
-      headers['X-GitHub-Api-Version'] = '2026-03-10'
-      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
       break
     case 'fireworks':
       if (!apiKey || !accountId) throw new Error('需要同时配置 Fireworks API Key 和 Account ID')
@@ -183,6 +191,42 @@ function providerRequest(provider, apiKey, accountId) {
       target = 'https://api.jina.ai/v1/models'
       if (apiKey) headers.Authorization = `Bearer ${apiKey}`
       break
+    case 'zhipu':
+      if (!apiKey) {
+        target = publicCatalogUrl
+        break
+      }
+      requireKey('智谱 BigModel')
+      target = 'https://open.bigmodel.cn/api/paas/v4/models'
+      break
+    case 'stepfun':
+      if (!apiKey) {
+        target = publicCatalogUrl
+        break
+      }
+      requireKey('阶跃星辰 StepFun')
+      target = 'https://api.stepfun.com/v1/models'
+      break
+    case 'scaleway':
+      if (!apiKey) {
+        target = publicCatalogUrl
+        break
+      }
+      requireKey('Scaleway')
+      target = 'https://api.scaleway.ai/v1/models'
+      break
+    case 'hyperbolic':
+      requireKey('Hyperbolic')
+      target = 'https://api.hyperbolic.xyz/v1/models'
+      break
+    case 'novita':
+      target = 'https://api.novita.ai/openai/v1/models'
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'aimlapi':
+      target = 'https://api.aimlapi.com/models'
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+      break
     default:
       throw new Error('当前服务商不支持模型目录同步')
   }
@@ -215,6 +259,7 @@ function publicCatalogRows(provider, payload) {
     const model = objectValue(value)
     if (!model || model.status === 'deprecated') return []
     const apiModel = stringValue(model, 'id') || fallbackId
+    if (retiredModelsByProvider[provider]?.has(apiModel)) return []
     const modalities = objectValue(model.modalities)
     const outputs = stringArray(modalities?.output).map((item) => item.toLowerCase())
     const descriptor = `${apiModel} ${stringValue(model, 'name', 'family')}`.toLowerCase()
@@ -296,6 +341,27 @@ async function fetchProviderPayload(provider, target, headers) {
     return { results }
   }
 
+  if (provider === 'huggingface') {
+    const results = []
+    let nextPage = target
+    for (let page = 0; page < 30 && nextPage; page += 1) {
+      const nextUrl = new URL(nextPage)
+      if (nextUrl.protocol !== 'https:' || nextUrl.hostname !== 'huggingface.co') {
+        throw new Error('Hugging Face 返回了不安全的分页地址')
+      }
+      const upstream = await fetch(nextUrl, { headers })
+      const payload = await upstream.json().catch(() => ({}))
+      if (!upstream.ok) {
+        const message = payload?.error?.message || payload?.error || payload?.message
+        throw new Error(typeof message === 'string' ? message : `服务商目录请求失败（${upstream.status}）`)
+      }
+      results.push(...rowsFromModelPayload(payload))
+      const link = upstream.headers.get('Link') || ''
+      nextPage = link.match(/<([^>]+)>;\s*rel="next"/)?.[1]
+    }
+    return { results }
+  }
+
   if (provider === 'gemini' || provider === 'cohere' || provider === 'cloudflare') {
     const results = []
     let nextPage = target
@@ -357,9 +423,10 @@ function inferModelCategory(record, apiModel) {
   ].map((value) => value.toLowerCase())
 
   if (outputModalities.includes('embeddings') || outputModalities.includes('embedding')) return 'embedding'
+  if (outputModalities.includes('rerank') || outputModalities.includes('reranker')) return 'reranker'
   if (outputModalities.includes('video')) return 'video'
   if (outputModalities.includes('image')) return 'image'
-  if (outputModalities.includes('audio')) return 'audio'
+  if (outputModalities.some((value) => ['audio', 'speech', 'tts'].includes(value))) return 'audio'
 
   const descriptor = [
     apiModel,
@@ -377,31 +444,249 @@ function inferModelCategory(record, apiModel) {
   return 'chat'
 }
 
-const dailyRefreshProviders = new Set(['cloudflare', 'groq', 'modelscope', 'cerebras', 'sambanova'])
+const cloudflarePaidOnlyModels = new Set([
+  '@cf/moonshotai/kimi-k2.6',
+  '@cf/moonshotai/kimi-k2.7-code',
+  '@cf/zai-org/glm-5.2',
+  '@cf/deepseek-ai/deepseek-v4-flash-0731',
+  '@cf/deepseek-ai/deepseek-v4-pro-0813',
+])
 
-function isDailyRefreshModel(provider, apiModel) {
-  if (provider === 'openrouter') {
-    return apiModel === 'openrouter/free' || apiModel.endsWith(':free')
-  }
-  if (provider === 'gemini') {
-    return /^gemini-2\.5-flash(?:-lite)?(?:$|-)/i.test(apiModel)
-  }
-  return dailyRefreshProviders.has(provider)
+const geminiFreeTierModels = new Set([
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-live-translate-preview',
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-3.1-flash-live-preview',
+  'gemini-3.1-flash-tts-preview',
+  'gemini-3-flash-preview',
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash-lite-preview-09-2025',
+  'gemini-2.5-flash-native-audio-preview-12-2025',
+  'gemini-2.5-flash-preview-tts',
+  'gemini-embedding-2',
+  'gemini-embedding-001',
+  'gemini-robotics-er-2-preview',
+  'gemini-robotics-er-2-streaming-preview',
+  'gemini-robotics-er-1.6-preview',
+  'gemini-flash-latest',
+  'gemini-flash-lite-latest',
+])
+
+const groqFreePlanModels = new Set([
+  'whisper-large-v3',
+  'whisper-large-v3-turbo',
+  'llama-3.3-70b-versatile',
+  'llama-3.1-8b-instant',
+  'allam-2-7b',
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
+  'openai/gpt-oss-safeguard-20b',
+  'qwen/qwen3.6-27b',
+  'meta-llama/llama-prompt-guard-2-86m',
+  'meta-llama/llama-prompt-guard-2-22m',
+  'groq/compound-mini',
+  'groq/compound',
+  'canopylabs/orpheus-arabic-saudi',
+  'canopylabs/orpheus-v1-english',
+])
+
+const cerebrasFreePlanModels = new Set(['gpt-oss-120b', 'zai-glm-4.7'])
+const sambanovaFreePlanModels = new Set([
+  'DeepSeek-V3.1',
+  'Meta-Llama-3.3-70B-Instruct',
+  'gpt-oss-120b',
+  'Llama-4-Maverick-17B-128E-Instruct',
+  'DeepSeek-V3.2',
+])
+
+const baiduFreeQuotaModels = new Set([
+  'ernie-4.5-turbo-128k',
+  'ernie-4.5-turbo-32k',
+  'ernie-4.5-turbo-vl',
+  'ernie-x1-turbo-32k',
+  'deepseek-r1',
+  'deepseek-r1-250528',
+  'deepseek-v3-250324',
+  'deepseek-v3.1-250821',
+  'deepseek-v3.1-think-250821',
+  'kimi-k2-instruct',
+  'qwen3-235b-a22b-instruct-2507',
+  'qwen3-30b-a3b-instruct-2507',
+  'qwen3-coder-30b-a3b-instruct',
+  'qwen3-coder-480b-a35b-instruct',
+  'bge-large-en',
+  'bge-large-zh',
+  'qianfan-sug-8k',
+])
+
+const alibabaFreeQuotaModels = new Set([
+  'deepseek-r1-distill-qwen-32b',
+  'qwen3-vl-plus',
+  'qwen3-coder-30b-a3b-instruct',
+  'qwen3.7-max',
+  'deepseek-r1',
+  'deepseek-v3-1',
+  'qwen-turbo',
+  'qwen-omni-turbo',
+  'qwen-vl-max',
+  'qwen3-32b',
+  'deepseek-v3-2-exp',
+  'deepseek-v4-flash',
+  'qwen3-vl-30b-a3b',
+  'qwen-math-plus',
+  'qwen3-235b-a22b',
+  'qwen-max',
+  'qwen3.5-397b-a17b',
+  'qwen3.5-flash',
+  'qwen-plus',
+  'deepseek-v4-pro',
+  'deepseek-v3',
+  'qwen3.5-plus',
+  'deepseek-r1-0528',
+  'qwen3-coder-flash',
+  'glm-5',
+  'qwen3.6-max-preview',
+  'qwen3.8-max',
+  'qwen3.7-plus',
+  'qwen3.7-flash',
+  'qwen3-vl-235b-a22b',
+  'qwen-vl-ocr',
+  'qwen3-14b',
+  'qwen-mt-turbo',
+  'qwen3-next-80b-a3b-thinking',
+  'qwen3-coder-480b-a35b-instruct',
+  'qwen3-omni-flash',
+  'kimi-k2.5',
+  'qwen-flash',
+  'moonshot-kimi-k2-instruct',
+  'qwen3-8b',
+  'qwen3-max',
+  'glm-5.2',
+  'deepseek-r1-distill-llama-70b',
+  'deepseek-r1-distill-qwen-7b',
+  'qwen2-5-omni-7b',
+  'qvq-max',
+  'qwen3-next-80b-a3b-instruct',
+  'qwen-long',
+  'qwen3-omni-flash-realtime',
+  'qwen3.6-plus',
+  'qwen-mt-plus',
+  'qwq-plus',
+  'glm-5.1',
+  'minimax-m2.5',
+  'deepseek-r1-distill-qwen-14b',
+  'qwen-omni-turbo-realtime',
+  'qwen3-asr-flash',
+  'qwen-vl-plus',
+  'kimi-k2-thinking',
+  'qwen3.6-flash',
+  'kimi-k2.6',
+  'qwen3-coder-plus',
+  'qwen-image-3.0-pro',
+  'wan2.7-image-pro',
+  'wan2.6-image',
+  'wan2.6-i2v',
+  'wan2.6-t2v',
+  'happyhorse-1.1-t2v',
+  'qwen-audio-3.0-tts-plus',
+  'qwen-audio-3.0-realtime-plus',
+  'fun-asr',
+  'fun-asr-realtime',
+  'text-embedding-v4',
+  'text-embedding-v3',
+  'qwen2.5-vl-embedding',
+  'tongyi-embedding-vision-plus',
+  'gte-rerank-v2',
+])
+
+function isArkFreeQuotaModel(apiModel) {
+  return /^(?:doubao-seed-2-1-(?:pro|turbo)|doubao-seed-evolving|doubao-seed-character|doubao-seedance-(?:1-5-pro|1-0-pro)|doubao-seedream-(?:5-0-lite|4-5|4-0)|doubao-embedding-vision)(?:$|-)/i.test(apiModel)
 }
 
-function inferModelPricing(provider, record, apiModel) {
-  if (isDailyRefreshModel(provider, apiModel)) return 'daily-refresh'
-  if (apiModel.endsWith(':free') || /(?:^|[-_/])free(?:$|[-_/])/.test(apiModel.toLowerCase())) return 'free'
+function outputModalities(record) {
+  const architecture = objectValue(record.architecture)
+  return [
+    ...stringArray(record.output_modalities),
+    ...stringArray(record.supported_output_modalities),
+    ...stringArray(architecture?.output_modalities),
+  ].map((value) => value.toLowerCase())
+}
+
+function hasRichMediaOutput(record) {
+  return outputModalities(record).some((value) => ['video', 'image', 'audio', 'speech', 'tts'].includes(value))
+}
+
+export function inferModelPricing(provider, record, apiModel) {
   if (record.paid_only === true) return 'paid'
+  if (apiModel.endsWith(':free') || /(?:^|[-_/])free(?:$|[-_/])/.test(apiModel.toLowerCase())) return 'free'
+  if (record.is_free === true) return 'free'
+
+  if (provider === 'cloudflare') {
+    return cloudflarePaidOnlyModels.has(apiModel) ? 'paid' : 'daily-refresh'
+  }
+  if (provider === 'gemini') {
+    return geminiFreeTierModels.has(apiModel) ? 'daily-refresh' : 'paid'
+  }
+  if (provider === 'groq') {
+    return groqFreePlanModels.has(apiModel) ? 'daily-refresh' : 'paid'
+  }
+  if (provider === 'modelscope') return 'daily-refresh'
+  if (provider === 'cerebras') {
+    return cerebrasFreePlanModels.has(apiModel) ? 'daily-refresh' : 'paid'
+  }
+  if (provider === 'sambanova') {
+    return sambanovaFreePlanModels.has(apiModel) ? 'daily-refresh' : 'paid'
+  }
+  if (provider === 'cohere') {
+    return /(?:^|\/)north-mini-code(?:-1-0)?$/i.test(apiModel) ? 'free' : 'free-quota'
+  }
+  if (provider === 'elevenlabs') {
+    const freeUserLimit = Number(record.max_characters_request_free_user)
+    return Number.isFinite(freeUserLimit) && freeUserLimit > 0 ? 'free-quota' : 'paid'
+  }
+  if (provider === 'baidu') {
+    return baiduFreeQuotaModels.has(apiModel.toLowerCase()) ? 'free-quota' : 'paid'
+  }
+  if (provider === 'alibaba') {
+    const normalizedId = apiModel.toLowerCase()
+    if (normalizedId === 'deepseek-r1-distill-qwen-1-5b') return 'free'
+    return alibabaFreeQuotaModels.has(normalizedId) ? 'free-quota' : 'paid'
+  }
+  if (provider === 'ark') return isArkFreeQuotaModel(apiModel) ? 'free-quota' : 'paid'
+  if (provider === 'zhipu') {
+    return new Set(['glm-4.7-flash', 'glm-4.6v-flash', 'glm-4v-flash', 'bge-reranker-large'])
+      .has(apiModel.toLowerCase()) ? 'free' : 'paid'
+  }
+  if (provider === 'stepfun') {
+    return new Set(['step-gui', 'step-2x-large', 'step-1x-edit'])
+      .has(apiModel.toLowerCase()) ? 'free' : 'paid'
+  }
+  if (['scaleway', 'hyperbolic', 'novita', 'aimlapi'].includes(provider)) return 'free-quota'
+  if (provider === 'minimax') return 'free-quota'
+  if (provider === 'pollinations') return 'free-quota'
+  if (['huggingface', 'jina', 'nvidia', 'mistral', 'fireworks'].includes(provider)) return 'free-quota'
+
   const pricing = objectValue(record.pricing)
+  let numericPrices = []
   if (pricing) {
-    const numericPrices = Object.values(pricing)
+    numericPrices = Object.values(pricing)
       .flatMap((value) => typeof value === 'number' || typeof value === 'string' ? [Number(value)] : [])
       .filter(Number.isFinite)
-    if (numericPrices.some((value) => value > 0)) return 'paid'
+    if (numericPrices.length > 0 && numericPrices.every((value) => value === 0)) {
+      // OpenRouter exposes token prices separately from image/audio/video generation
+      // prices. A zero token price is only sufficient evidence for non-rich-media models.
+      if (provider === 'openrouter' && hasRichMediaOutput(record)) return 'variable'
+      return 'free'
+    }
   }
-  if (record.is_free === true) return 'free'
   if (record.free_tier === true || record.has_free_tier === true) return 'free-quota'
+  if (numericPrices.some((value) => value > 0)) return 'paid'
+  if (provider === 'deepinfra') return 'paid'
   return provider === 'agnes' ? 'free' : 'variable'
 }
 
@@ -439,12 +724,13 @@ function chineseModelDescription(record, category) {
   return `主要用于${base}${features.length ? `，支持${features.slice(0, 3).join('、')}` : ''}。`
 }
 
-function normalizeProviderModels(provider, payload) {
+export function normalizeProviderModels(provider, payload) {
   const unique = new Map()
   for (const record of rowsFromModelPayload(payload)) {
     const apiModel = stringValue(record, 'baseModelId', 'model_id', 'id', 'name', 'llm')
       .replace(/^models\//, '')
     if (!apiModel || apiModel.length > 240) continue
+    if (retiredModelsByProvider[provider]?.has(apiModel)) continue
     const rawName = stringValue(record, 'displayName', 'display_name', 'name', 'model_name', 'model_id', 'id', 'llm')
     unique.set(apiModel, {
       apiModel,

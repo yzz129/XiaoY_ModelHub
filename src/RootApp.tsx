@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react'
 import { LogOut, Save, ShieldCheck, UserRound, X } from 'lucide-react'
 import App from './App'
+import { AgentPet } from './components/AgentPet'
 import { AdminDashboard } from './components/AdminDashboard'
 import { AuthPage } from './components/AuthPage'
 import { PublicHome } from './components/PublicHome'
+import { useProviderCatalog } from './hooks/useProviderCatalog'
 import { getAccountCredentials, getCurrentAccount, logoutAccount, updateAccountProfile, type AccountUser } from './lib/account'
+import { requestAgentAppAction, type AgentAppAction } from './lib/agentNavigation'
 import { applyProviderConfigurationStatus, clearLegacyBrowserCredentials } from './lib/providerCredentials'
 import './admin.css'
 
 export default function RootApp() {
+  const providerCatalog = useProviderCatalog()
   const [user, setUser] = useState<AccountUser>()
   const [loading, setLoading] = useState(true)
   const [route, setRoute] = useState(() => window.location.hash)
@@ -19,9 +23,14 @@ export default function RootApp() {
     clearLegacyBrowserCredentials()
     getCurrentAccount()
       .then(async (result) => {
+        if (!result.user) {
+          applyProviderConfigurationStatus([], [])
+          setUser(undefined)
+          return
+        }
         setUser(result.user)
-        const remote = await getAccountCredentials().catch(() => ({ credentials: [], configuredProviders: [], personalProviders: [] }))
-        applyProviderConfigurationStatus(remote.configuredProviders, remote.personalProviders)
+        const remote = await getAccountCredentials().catch(() => ({ credentials: [], configuredProviders: [], personalProviders: [], authModes: {} }))
+        applyProviderConfigurationStatus(remote.configuredProviders, remote.personalProviders, remote.authModes ?? {})
       })
       .catch(() => {
         applyProviderConfigurationStatus([], [])
@@ -47,28 +56,53 @@ export default function RootApp() {
     setUser(nextUser)
     setAuthOpen(false)
     clearLegacyBrowserCredentials()
-    const remote = await getAccountCredentials().catch(() => ({ credentials: [], configuredProviders: [], personalProviders: [] }))
-    applyProviderConfigurationStatus(remote.configuredProviders, remote.personalProviders)
+    const remote = await getAccountCredentials().catch(() => ({ credentials: [], configuredProviders: [], personalProviders: [], authModes: {} }))
+    applyProviderConfigurationStatus(remote.configuredProviders, remote.personalProviders, remote.authModes ?? {})
+  }
+
+  function requireAuth() {
+    setAuthOpen(true)
+  }
+
+  function openAgentDestination(action: AgentAppAction) {
+    if (!user) {
+      requireAuth()
+      return
+    }
+    setProfileOpen(false)
+    if (window.location.hash) window.location.hash = ''
+    requestAgentAppAction(action)
   }
 
   if (loading) return <main className="account-loading"><span /><strong>正在连接工作台…</strong></main>
-  if (!user) {
-    if (authOpen) return <AuthPage onAuthenticated={(nextUser) => { void authenticated(nextUser) }} onCancel={() => setAuthOpen(false)} />
-    return <PublicHome onRequireAuth={() => setAuthOpen(true)} />
-  }
-  if (route === '#admin' && user.role === 'admin') {
-    return <AdminDashboard user={user} onBack={() => { window.location.hash = '' }} onLogout={() => void logout()} />
-  }
+  const page = !user
+    ? authOpen
+      ? <AuthPage onAuthenticated={(nextUser) => { void authenticated(nextUser) }} onCancel={() => setAuthOpen(false)} />
+      : <PublicHome providerCatalog={providerCatalog} onRequireAuth={requireAuth} />
+    : route === '#admin' && user.role === 'admin'
+      ? <AdminDashboard user={user} onBack={() => { window.location.hash = '' }} onLogout={() => void logout()} />
+      : <div className="account-root">
+        <App providerCatalog={providerCatalog} />
+        <div className="account-dock">
+          <button className="account-profile-button" onClick={() => setProfileOpen(true)}><UserRound /><b>{user.displayName}</b><small>修改资料</small></button>
+          {user.role === 'admin' && <button onClick={() => { window.location.hash = 'admin' }}><ShieldCheck />后台</button>}
+          <button className="account-logout-button" onClick={() => void logout()}><LogOut />退出登录</button>
+        </div>
+        {profileOpen && <ProfileDialog user={user} onClose={() => setProfileOpen(false)} onSaved={(nextUser) => { setUser(nextUser); setProfileOpen(false) }} />}
+      </div>
 
-  return <div className="account-root">
-    <App />
-    <div className="account-dock">
-      <button className="account-profile-button" onClick={() => setProfileOpen(true)}><UserRound /><b>{user.displayName}</b><small>修改资料</small></button>
-      {user.role === 'admin' && <button onClick={() => { window.location.hash = 'admin' }}><ShieldCheck />后台</button>}
-      <button className="account-logout-button" onClick={() => void logout()}><LogOut />退出登录</button>
-    </div>
-    {profileOpen && <ProfileDialog user={user} onClose={() => setProfileOpen(false)} onSaved={(nextUser) => { setUser(nextUser); setProfileOpen(false) }} />}
-  </div>
+  return <>
+    {page}
+    <AgentPet
+      key={user ? `account:${user.id}` : 'guest'}
+      locked={!user}
+      models={providerCatalog.models}
+      onRequireAuth={requireAuth}
+      onOpenSettings={(providerId) => openAgentDestination({ type: 'settings', providerId })}
+      onOpenModels={() => openAgentDestination({ type: 'models' })}
+      onOpenWorkspace={(mode, prompt) => openAgentDestination({ type: 'workspace', mode, prompt })}
+    />
+  </>
 }
 
 function ProfileDialog({

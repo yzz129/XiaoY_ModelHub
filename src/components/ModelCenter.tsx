@@ -62,6 +62,11 @@ function modelFamily(model: CatalogModel): ModelFamily {
   return 'vision'
 }
 
+function modelMatchesQuery(model: CatalogModel, needle: string) {
+  return !needle
+    || `${model.name} ${model.provider} ${model.apiModel}`.toLowerCase().includes(needle)
+}
+
 export function ModelCenter({
   open = false,
   embedded = false,
@@ -109,11 +114,25 @@ export function ModelCenter({
     () => availableModels.filter((model) => modelFamily(model) === family),
     [availableModels, family],
   )
+  const needle = query.trim().toLowerCase()
+  const pricingCounts = useMemo(() => {
+    const counts = new Map<PricingTier, number>()
+    for (const model of familyModels) {
+      if ((provider === 'all' || model.provider === provider) && modelMatchesQuery(model, needle)) {
+        counts.set(model.pricing, (counts.get(model.pricing) ?? 0) + 1)
+      }
+    }
+    return counts
+  }, [familyModels, needle, provider])
   const providers = useMemo(() => {
     const familyCounts = new Map<string, number>()
+    const filteredCounts = new Map<string, number>()
     const totalCounts = new Map<string, number>()
     for (const model of familyModels) {
       familyCounts.set(model.provider, (familyCounts.get(model.provider) ?? 0) + 1)
+      if ((pricing === 'all' || model.pricing === pricing) && modelMatchesQuery(model, needle)) {
+        filteredCounts.set(model.provider, (filteredCounts.get(model.provider) ?? 0) + 1)
+      }
     }
     for (const model of availableModels) {
       totalCounts.set(model.provider, (totalCounts.get(model.provider) ?? 0) + 1)
@@ -121,17 +140,17 @@ export function ModelCenter({
     return providerDefinitions.map((definition) => ({
       ...definition,
       count: familyCounts.get(definition.name) ?? 0,
+      filteredCount: filteredCounts.get(definition.name) ?? 0,
       totalCount: totalCounts.get(definition.name) ?? 0,
     }))
-  }, [availableModels, familyModels])
+  }, [availableModels, familyModels, needle, pricing])
   const models = useMemo(() => {
-    const needle = query.trim().toLowerCase()
     return familyModels.filter((model) =>
       (pricing === 'all' || model.pricing === pricing)
       && (provider === 'all' || model.provider === provider)
-      && (!needle || `${model.name} ${model.provider} ${model.apiModel}`.toLowerCase().includes(needle)),
+      && modelMatchesQuery(model, needle),
     )
-  }, [familyModels, pricing, provider, query])
+  }, [familyModels, needle, pricing, provider])
 
   async function refreshQuota(providerId: string) {
     setQuotaLoading(providerId)
@@ -152,6 +171,10 @@ export function ModelCenter({
   const currentFamily = familyMeta.find((item) => item.id === family)!
   const availableProviders = providers.filter((item) => item.count > 0)
   const unavailableProviders = providers.filter((item) => item.count === 0)
+  const filteredProviderCount = availableProviders.filter((item) => item.filteredCount > 0).length
+  const pricingModelCount = familyModels.filter((model) =>
+    (provider === 'all' || model.provider === provider) && modelMatchesQuery(model, needle),
+  ).length
 
   const content = (
     <>
@@ -213,7 +236,7 @@ export function ModelCenter({
           <fieldset>
             <legend>费用类型</legend>
             <button type="button" className={pricing === 'all' ? 'active' : ''} onClick={() => { setPricing('all'); setDisplayLimit(72) }}>
-              <span>全部费用</span><b>{familyModels.length}</b>
+              <span>全部费用</span><b>{pricingModelCount}</b>
             </button>
             {(Object.keys(pricingLabels) as PricingTier[]).map((value) => (
               <button
@@ -223,7 +246,7 @@ export function ModelCenter({
                 key={value}
               >
                 <span>{pricingLabels[value]}</span>
-                <b>{familyModels.filter((model) => model.pricing === value).length}</b>
+                <b>{pricingCounts.get(value) ?? 0}</b>
               </button>
             ))}
           </fieldset>
@@ -238,10 +261,10 @@ export function ModelCenter({
                 setDisplayLimit(72)
               }}
             >
-              <option value="all">全部平台（{availableProviders.length}）</option>
+              <option value="all">全部平台（{filteredProviderCount}）</option>
               {availableProviders.map((item) => (
                 <option value={item.name} key={item.id}>
-                  {item.name}（{item.count}）
+                  {item.name}（{item.filteredCount}）
                 </option>
               ))}
             </select>
@@ -250,17 +273,18 @@ export function ModelCenter({
           <fieldset>
             <legend>服务平台</legend>
             <button type="button" className={provider === 'all' ? 'active' : ''} onClick={() => { setProvider('all'); setDisplayLimit(72) }}>
-              <span>全部平台</span><b>{availableProviders.length}</b>
+              <span>全部平台</span><b>{filteredProviderCount}</b>
             </button>
             {availableProviders.map((item) => (
               <button
                 type="button"
                 className={provider === item.name ? 'active' : ''}
                 onClick={() => { setProvider(item.name); setDisplayLimit(72) }}
+                disabled={item.filteredCount === 0 && provider !== item.name}
                 key={item.id}
               >
                 <span>{item.name}</span>
-                <b>{item.count}</b>
+                <b>{item.filteredCount}</b>
               </button>
             ))}
             {unavailableProviders.length > 0 && (
@@ -297,7 +321,7 @@ export function ModelCenter({
               <span>{currentFamily.label}</span>
               <strong>{currentFamily.description}</strong>
             </div>
-            <p>共 {familyModels.length} 个模型，当前显示 {models.length} 个</p>
+            <p>共 {familyModels.length} 个模型，符合条件 {models.length} 个，已加载 {Math.min(models.length, displayLimit)} 个</p>
           </div>
 
           <div className="marketplace-legend">
@@ -325,7 +349,7 @@ export function ModelCenter({
                     <div className="catalog-badges">
                       <b className={`price-badge ${model.pricing}`}>{pricingLabels[model.pricing]}</b>
                       <b className={`integration-badge ${model.integration}`}>
-                        {model.integration === 'ready' ? '已接入' : '目录'}
+                        {model.integration === 'ready' ? '已接入' : '待接入'}
                       </b>
                     </div>
                   </div>
@@ -363,7 +387,7 @@ export function ModelCenter({
                       </button>
                     )}
                     <a href={model.docsUrl} target="_blank" rel="noreferrer" title="API 文档"><ExternalLink />文档</a>
-                    <a href={model.keyUrl} target="_blank" rel="noreferrer" title="申请 API Key"><KeyRound />Key</a>
+                    <a href={model.keyUrl} target="_blank" rel="noreferrer" title="申请 API Key"><KeyRound />申请 Key</a>
                   </div>
                 </article>
               )

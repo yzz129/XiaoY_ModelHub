@@ -1,0 +1,15 @@
+{
+  "name": "xiaoy-modelhub-agent-scheduler",
+  "main": "workers/agent-scheduler.js",
+  "compatibility_date": "2026-08-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "SCHEDULER_ENDPOINT": "https://xiaoymodelhub.yzzwnw.asia/api/agent/scheduled/run"
+  }
+}

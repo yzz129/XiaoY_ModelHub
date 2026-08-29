@@ -1,14 +1,14 @@
 export type GenerationKind = 'image' | 'video' | '3d'
 export type ImageMode = 'text'
 export type VideoMode = 'text' | 'first-frame' | 'first-last-frame' | 'reference-images'
-export type ThreeDMode = 'image-to-3d'
+export type ThreeDMode = 'text-to-3d' | 'image-to-3d'
 export type GenerationMode = ImageMode | VideoMode | ThreeDMode
 export type AspectRatio = '1:1' | '4:3' | '3:4' | '16:9' | '9:16'
 export type Resolution = '1K' | '2K' | '3K' | '4K' | '720p' | '1080p'
 export type CanvasView = 'session' | 'history'
 export type ImageModel = string
 export type VideoModel = string
-export type ThreeDModel = 'doubao-seed3d-2-0-260328' | 'hyper3d-gen2-260112'
+export type ThreeDModel = 'doubao-seed3d-2-0-260328' | 'hyper3d-gen2-260112' | 'hy-3d-3.0' | 'hy-3d-3.1' | 'hy-3d-express'
 
 export interface FrameAsset {
   dataUrl: string
@@ -78,6 +78,7 @@ export interface PendingVideoTask {
 
 export interface PendingThreeDTask {
   taskId: string
+  provider?: 'ark' | 'tencent'
   compiledPrompt: string
   settings: SettingsSnapshot
   sessionId: string

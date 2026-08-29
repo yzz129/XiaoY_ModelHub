@@ -1,4 +1,6 @@
 import {
+  AudioLines,
+  Box,
   Boxes,
   History,
   Image,
@@ -21,6 +23,7 @@ interface PortalSidebarProps {
   onMarketplace: (family?: ModelFamily) => void
   onStudio: (kind: GenerationKind) => void
   onLanguage: () => void
+  onAudio: () => void
   onHistory: () => void
   onSettings: () => void
 }
@@ -52,6 +55,7 @@ export function PortalSidebar({
   onMarketplace,
   onStudio,
   onLanguage,
+  onAudio,
   onHistory,
   onSettings,
 }: PortalSidebarProps) {
@@ -70,6 +74,8 @@ export function PortalSidebar({
           <NavButton active={view === 'language'} icon={MessageSquareText} label="语言模型" onClick={onLanguage} />
           <NavButton active={view === 'studio' && kind === 'image' && !historyActive} icon={Image} label="图像生成" onClick={() => onStudio('image')} />
           <NavButton active={view === 'studio' && kind === 'video' && !historyActive} icon={Video} label="视频生成" onClick={() => onStudio('video')} />
+          <NavButton active={view === 'audio'} icon={AudioLines} label="语音创作" onClick={onAudio} />
+          <NavButton active={view === 'studio' && kind === '3d' && !historyActive} icon={Box} label="3D 生成" onClick={() => onStudio('3d')} />
           <NavButton active={historyActive} badge={historyCount} icon={History} label="创作历史" onClick={onHistory} />
         </section>
 

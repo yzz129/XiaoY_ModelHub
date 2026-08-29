@@ -10,7 +10,6 @@ const chatProviderEndpoints = {
   deepinfra: 'https://api.deepinfra.com/v1/openai/chat/completions',
   deepseek: 'https://api.deepseek.com/chat/completions',
   fireworks: 'https://api.fireworks.ai/inference/v1/chat/completions',
-  github: 'https://models.github.ai/inference/chat/completions',
   minimax: 'https://api.minimaxi.com/v1/chat/completions',
   mistral: 'https://api.mistral.ai/v1/chat/completions',
   modelscope: 'https://api-inference.modelscope.cn/v1/chat/completions',
@@ -25,6 +24,12 @@ const chatProviderEndpoints = {
   groq: 'https://api.groq.com/openai/v1/chat/completions',
   together: 'https://api.together.xyz/v1/chat/completions',
   xai: 'https://api.x.ai/v1/chat/completions',
+  zhipu: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+  stepfun: 'https://api.stepfun.com/v1/chat/completions',
+  scaleway: 'https://api.scaleway.ai/v1/chat/completions',
+  hyperbolic: 'https://api.hyperbolic.xyz/v1/chat/completions',
+  novita: 'https://api.novita.ai/openai/v1/chat/completions',
+  aimlapi: 'https://api.aimlapi.com/v1/chat/completions',
 }
 
 const allowedSpeechVoices = new Set(['JBFqnCBsd6RMkjVDRZzb', '21m00Tcm4TlvDq8ikWAM', 'pNInz6obpgDQGcFmaJgB'])
@@ -115,7 +120,6 @@ async function handleChat(body, provider, apiKey, model) {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
       ...(provider === 'openrouter' ? { 'HTTP-Referer': 'https://xiaoymodelhub.yzzwnw.asia', 'X-Title': 'XiaoY_ModelHub' } : {}),
-      ...(provider === 'github' ? { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10' } : {}),
     },
     body: JSON.stringify({
       model,

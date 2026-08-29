@@ -1,4 +1,4 @@
-import type { ImageModel, Resolution, VideoModel } from '../types/generation'
+import type { GenerationSettings, ImageModel, Resolution, ThreeDModel, VideoModel } from '../types/generation'
 import { sortModelsByPricing, type PricingTier } from './providerCatalog'
 
 export interface GenerationModelOption<T extends ImageModel | VideoModel> {
@@ -6,7 +6,7 @@ export interface GenerationModelOption<T extends ImageModel | VideoModel> {
   apiModel?: string
   name: string
   description: string
-  provider: 'ark' | 'agnes' | 'siliconflow' | 'cloudflare' | 'pollinations'
+  provider: 'ark' | 'agnes' | 'siliconflow' | 'cloudflare' | 'pollinations' | 'tencent'
   resolutions: Resolution[]
   maxPromptLength: number
   supportsReferenceImage?: boolean
@@ -21,6 +21,8 @@ export const imageModels: GenerationModelOption<ImageModel>[] = sortModelsByPric
   { id: 'doubao-seedream-4-0-250828', name: 'Seedream 4.0', description: '方舟 · 稳定通用创作', provider: 'ark', resolutions: ['1K', '2K', '4K'], maxPromptLength: 600, supportsReferenceImage: true, pricing: 'paid' },
   { id: 'agnes-image-2.0-flash', name: 'Agnes Image 2.0 Flash', description: 'Agnes AI · 免费核心模型', provider: 'agnes', resolutions: ['1K', '2K', '3K', '4K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'free' },
   { id: 'agnes-image-2.1-flash', name: 'Agnes Image 2.1 Flash', description: 'Agnes AI · 免费核心模型', provider: 'agnes', resolutions: ['1K', '2K', '3K', '4K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'free' },
+  { id: 'tencent-hy-image-v3', apiModel: 'hy-image-v3.0', name: '混元生图 3.0', description: '腾讯 TokenHub · 文生图与参考图生成', provider: 'tencent', resolutions: ['1K'], maxPromptLength: 1024, supportsReferenceImage: true, pricing: 'paid' },
+  { id: 'tencent-hy-image-lite', apiModel: 'hy-image-lite', name: '混元生图 极速版', description: '腾讯 TokenHub · 快速中文生图', provider: 'tencent', resolutions: ['1K'], maxPromptLength: 1024, pricing: 'paid' },
   { id: 'siliconflow-kolors', apiModel: 'Kwai-Kolors/Kolors', name: 'Kolors', description: 'SiliconFlow · 费用以模型页为准', provider: 'siliconflow', resolutions: ['1K'], maxPromptLength: 2048, pricing: 'variable' },
   { id: 'cloudflare-flux-schnell', apiModel: '@cf/black-forest-labs/flux-1-schnell', name: 'FLUX.1 Schnell', description: 'Cloudflare · 每日免费额度', provider: 'cloudflare', resolutions: ['1K'], maxPromptLength: 2048, pricing: 'daily-refresh' },
   { id: 'cloudflare-sdxl-lightning', apiModel: '@cf/bytedance/stable-diffusion-xl-lightning', name: 'SDXL-Lightning', description: 'Cloudflare · 单步价格为 0', provider: 'cloudflare', resolutions: ['1K'], maxPromptLength: 2048, supportsReferenceImage: true, pricing: 'daily-refresh' },
@@ -38,7 +40,7 @@ export const imageModels: GenerationModelOption<ImageModel>[] = sortModelsByPric
   { id: 'pollinations-ideogram-v4-turbo', apiModel: 'ideogram-v4-turbo', name: 'Ideogram V4 Turbo', description: 'Pollinations · 约 0.03 Pollen/张', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, pricing: 'paid' },
   { id: 'pollinations-wan-image-pro', apiModel: 'wan-image-pro', name: 'Wan Image Pro', description: 'Pollinations · 约 0.03 Pollen/张', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'paid' },
   { id: 'pollinations-grok-imagine-pro', apiModel: 'grok-imagine-pro', name: 'Grok Imagine Pro', description: 'Pollinations · 付费高质量生图', provider: 'pollinations', resolutions: ['1K'], maxPromptLength: 32000, supportsReferenceImage: true, pricing: 'paid' },
-]).filter((model) => model.provider === 'agnes' && model.pricing === 'free')
+]).filter((model) => (model.provider === 'agnes' && model.pricing === 'free') || model.provider === 'tencent')
 
 export const videoModels: GenerationModelOption<VideoModel>[] = sortModelsByPricing<GenerationModelOption<VideoModel>>([
   { id: 'doubao-seedance-2-0-260128', name: 'Seedance 2.0', description: '方舟 · 旗舰画质与多模态参考', provider: 'ark', resolutions: ['720p', '1080p'], maxPromptLength: 20000, durations: [5, 10, 15], pricing: 'paid' },
@@ -59,12 +61,33 @@ const configuredVideoModel = import.meta.env.VITE_ARK_VIDEO_MODEL
 export const DEFAULT_IMAGE_MODEL: ImageModel = imageModels.find((model) => model.id === configuredImageModel)?.id ?? imageModels[0].id
 export const DEFAULT_VIDEO_MODEL: VideoModel = videoModels.find((model) => model.id === configuredVideoModel)?.id ?? videoModels[0].id
 
+export interface ThreeDModelOption {
+  id: ThreeDModel
+  name: string
+  description: string
+  provider: 'ark' | 'tencent'
+  pricing: PricingTier
+}
+
+export const threeDModels: ThreeDModelOption[] = [
+  { id: 'doubao-seed3d-2-0-260328', name: 'Seed3D 2.0', description: '火山方舟 · 图片转 3D', provider: 'ark', pricing: 'paid' },
+  { id: 'hyper3d-gen2-260112', name: 'Hyper3D Gen2', description: '火山方舟 · 图片转 3D', provider: 'ark', pricing: 'paid' },
+  { id: 'hy-3d-3.1', name: '混元生 3D 3.1', description: '腾讯 TokenHub · 高精度文生与图生 3D', provider: 'tencent', pricing: 'paid' },
+  { id: 'hy-3d-3.0', name: '混元生 3D 3.0', description: '腾讯 TokenHub · 专业级 3D 生成', provider: 'tencent', pricing: 'paid' },
+  { id: 'hy-3d-express', name: '混元生 3D 极速版', description: '腾讯 TokenHub · 更快生成 3D 模型', provider: 'tencent', pricing: 'paid' },
+]
+
+export function getThreeDModel(modelId?: ThreeDModel) {
+  return threeDModels.find((model) => model.id === modelId) ?? threeDModels[0]
+}
+
 export function getGenerationModel(settings: { kind: string; imageModel?: ImageModel; videoModel?: VideoModel }) {
   return settings.kind === 'image'
     ? imageModels.find((model) => model.id === settings.imageModel) ?? imageModels[0]
     : videoModels.find((model) => model.id === settings.videoModel) ?? videoModels[0]
 }
 
-export function getPromptLimit(settings: { kind: string; imageModel?: ImageModel; videoModel?: VideoModel }) {
-  return settings.kind === '3d' ? 1200 : getGenerationModel(settings).maxPromptLength
+export function getPromptLimit(settings: Pick<GenerationSettings, 'kind' | 'imageModel' | 'videoModel' | 'threeDModel'>) {
+  if (settings.kind === '3d') return settings.threeDModel === 'hy-3d-express' ? 200 : 1024
+  return getGenerationModel(settings).maxPromptLength
 }

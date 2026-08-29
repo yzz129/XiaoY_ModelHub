@@ -37,7 +37,7 @@ async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export async function getCurrentAccount() {
-  return requestJson<{ user: AccountUser }>('/api/auth/me')
+  return requestJson<{ user: AccountUser | null }>('/api/auth/me')
 }
 
 export async function loginAccount(email: string, password: string) {
@@ -81,11 +81,12 @@ export interface AccountCredential {
   providerId: string
   maskedApiKey: string
   accountIdConfigured: boolean
+  authMode?: 'tokenhub' | 'tencent-cloud'
   updatedAt: number
 }
 
 export async function getAccountCredentials() {
-  return requestJson<{ credentials: AccountCredential[], configuredProviders: string[], personalProviders: string[] }>('/api/credentials')
+  return requestJson<{ credentials: AccountCredential[], configuredProviders: string[], personalProviders: string[], authModes?: Record<string, 'tokenhub' | 'tencent-cloud'> }>('/api/credentials')
 }
 
 export async function saveAccountCredential(providerId: string, credentials: ProviderCredentials) {
@@ -135,6 +136,7 @@ export interface AdminCredential {
   email?: string
   displayName?: string
   maskedApiKey: string
+  authMode?: 'tokenhub' | 'tencent-cloud'
   accountId?: string
   updatedAt: number
 }
@@ -163,7 +165,7 @@ export async function getAdminCredentials() {
 }
 
 export async function getAdminCredentialSecret(scope: AdminCredential['scope'], id: string) {
-  return requestJson<{ apiKey: string }>(
+  return requestJson<{ apiKey: string, secretId?: string, secretKey?: string, region?: string, authMode?: 'tokenhub' | 'tencent-cloud' }>(
     `/api/admin/credentials/${encodeURIComponent(scope)}/${encodeURIComponent(id)}/secret`,
   )
 }

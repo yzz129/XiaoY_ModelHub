@@ -1,4 +1,4 @@
-import { resolveProviderCredentials } from './_secure_keys.js'
+import { resolveProviderCredentials, tencentCloudHeaders } from './_secure_keys.js'
 
 const allowedHosts = {
   agnes: new Set(['apihub.agnes-ai.com']),
@@ -6,6 +6,7 @@ const allowedHosts = {
   cloudflare: new Set(['api.cloudflare.com']),
   pollinations: new Set(['gen.pollinations.ai']),
   siliconflow: new Set(['api.siliconflow.cn']),
+  tencent: new Set(['tokenhub.tencentmaas.com', 'hunyuan.tencentcloudapi.com', 'ai3d.tencentcloudapi.com']),
 }
 
 function json(payload, status = 200) {
@@ -40,6 +41,13 @@ export async function onRequestPost({ request, env }) {
     const method = body.method === 'GET' ? 'GET' : 'POST'
     const responseType = body.responseType === 'binary' ? 'binary' : 'json'
     const credentials = await resolveProviderCredentials(env, request, provider)
+    const nativeTencent = provider === 'tencent' && credentials.mode === 'tencent-cloud'
+    if (nativeTencent) credentials.apiKey = credentials.secretId || 'tencent-cloud'
+    if (nativeTencent) {
+      if (!credentials.secretId || !credentials.secretKey) throw new Error('请先配置腾讯云 SecretId 和 SecretKey')
+    } else if (!credentials.apiKey) {
+      throw new Error('请先配置个人 API Key 或联系管理员配置全局 Key')
+    }
     if (!credentials.apiKey) throw new Error('请先配置个人 API Key，或联系管理员配置全局 Key')
 
     let target = typeof body.url === 'string' ? body.url : ''
@@ -52,15 +60,25 @@ export async function onRequestPost({ request, env }) {
       throw new Error('服务商请求地址不在允许列表中')
     }
 
-    const headers = {
+    const requestPayload = body.payload && typeof body.payload === 'object' ? body.payload : {}
+    const headers = nativeTencent
+      ? await tencentCloudHeaders(
+          credentials,
+          url.hostname,
+          typeof body.action === 'string' ? body.action : '',
+          typeof body.version === 'string' ? body.version : '',
+          credentials.region || 'ap-guangzhou',
+          requestPayload,
+        )
+      : {
       Authorization: `Bearer ${credentials.apiKey}`,
       Accept: responseType === 'binary' ? 'video/mp4,video/*;q=0.9,application/json;q=0.5' : 'application/json',
       ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
-    }
+        }
     const upstream = await fetch(url, {
       method,
       headers,
-      body: method === 'POST' ? JSON.stringify(body.payload && typeof body.payload === 'object' ? body.payload : {}) : undefined,
+      body: method === 'POST' ? JSON.stringify(requestPayload) : undefined,
     })
 
     if (responseType === 'binary' && upstream.ok) {

@@ -7,6 +7,7 @@ import {
   applyProviderConfigurationStatus,
   clearProviderCatalogCache,
   getProviderCredentialFields,
+  getProviderAuthMode,
   isProviderConfigured,
   isProviderPersonallyConfigured,
   type ProviderCredentials,
@@ -47,6 +48,10 @@ export function SettingsDialog({
   const personallyConfigured = isProviderPersonallyConfigured(provider.id)
   const globallyAvailable = isProviderConfigured(provider.id)
   const fields = getProviderCredentialFields(provider.id)
+  const isTencentCloud = provider.id === 'tencent' && credentials.mode === 'tencent-cloud'
+  const credentialReady = provider.id === 'tencent'
+    ? (isTencentCloud ? Boolean(credentials.secretId?.trim() && credentials.secretKey?.trim()) : Boolean(credentials.apiKey.trim()))
+    : Boolean(credentials.apiKey.trim())
 
   useEffect(() => {
     const dialog = ref.current
@@ -61,18 +66,24 @@ export function SettingsDialog({
 
   function selectProvider(nextProviderId: string) {
     setProviderId(nextProviderId)
-    setCredentials({ apiKey: '' })
+    setCredentials(nextProviderId === 'tencent'
+      ? { apiKey: '', mode: getProviderAuthMode(nextProviderId), region: 'ap-guangzhou' }
+      : { apiKey: '' })
     setSavedMessage('')
     setShowSecret(false)
   }
 
   async function save() {
+    if (!credentialReady) {
+      setSavedMessage('请完整填写凭据')
+      return
+    }
     setSaving(true)
     setSavedMessage('')
     try {
       await saveAccountCredential(providerId, credentials)
       const status = await getAccountCredentials()
-      applyProviderConfigurationStatus(status.configuredProviders, status.personalProviders)
+      applyProviderConfigurationStatus(status.configuredProviders, status.personalProviders, status.authModes ?? {})
       clearProviderCatalogCache()
       setCredentials({ apiKey: '' })
       setSavedMessage(`${provider.name} API Key 已加密保存到后端，浏览器未保留副本`)
@@ -90,7 +101,7 @@ export function SettingsDialog({
     try {
       await deleteAccountCredential(providerId)
       const status = await getAccountCredentials()
-      applyProviderConfigurationStatus(status.configuredProviders, status.personalProviders)
+      applyProviderConfigurationStatus(status.configuredProviders, status.personalProviders, status.authModes ?? {})
       clearProviderCatalogCache()
       setCredentials({ apiKey: '' })
       setSavedMessage(`已清除 ${provider.name} 的个人凭据`)
@@ -122,6 +133,14 @@ export function SettingsDialog({
               {providerDefinitions.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
             </select>
           </label>
+          {provider.id === 'tencent' && <>
+            <label className="credential-field"><span>接入方式<small>二选一</small></span><select value={credentials.mode ?? 'tokenhub'} onChange={(event) => setCredentials((current) => ({ ...current, mode: event.target.value as ProviderCredentials['mode'], apiKey: '', secretId: '', secretKey: '' }))}><option value="tokenhub">TokenHub API Key</option><option value="tencent-cloud">腾讯云 SecretId SecretKey</option></select></label>
+            {isTencentCloud ? <>
+              <label className="credential-field"><span>SecretId<small>服务端加密保存</small></span><div><input value={credentials.secretId ?? ''} onChange={(event) => setCredentials((current) => ({ ...current, secretId: event.target.value }))} placeholder="输入腾讯云 SecretId" autoComplete="off" /></div></label>
+              <label className="credential-field"><span>SecretKey<small>服务端加密保存</small></span><div><input type={showSecret ? 'text' : 'password'} value={credentials.secretKey ?? ''} onChange={(event) => setCredentials((current) => ({ ...current, apiKey: event.target.value, secretKey: event.target.value }))} placeholder="输入腾讯云 SecretKey" autoComplete="off" /><button type="button" aria-label="切换 SecretKey 显示" onClick={() => setShowSecret((current) => !current)}>{showSecret ? <EyeOff /> : <Eye />}</button></div></label>
+              <label className="credential-field"><span>Region<small>默认 ap-guangzhou</small></span><div><input value={credentials.region ?? 'ap-guangzhou'} onChange={(event) => setCredentials((current) => ({ ...current, region: event.target.value }))} placeholder="ap-guangzhou" autoComplete="off" /></div></label>
+            </> : <label className="credential-field"><span>API Key<small>服务端加密保存</small></span><div><input type={showSecret ? 'text' : 'password'} value={credentials.apiKey} onChange={(event) => setCredentials((current) => ({ ...current, apiKey: event.target.value }))} placeholder="输入 TokenHub API Key" autoComplete="off" /><button type="button" aria-label="切换 API Key 显示" onClick={() => setShowSecret((current) => !current)}>{showSecret ? <EyeOff /> : <Eye />}</button></div></label>}
+          </>}
           {fields.map((field) => (
             <label className="credential-field" key={field.key}>
               <span>{field.label}<small>服务端加密保存</small></span>

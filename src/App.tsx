@@ -8,11 +8,11 @@ import { PortalSidebar, type PortalView } from './components/PortalSidebar'
 import { SettingsDialog } from './components/SettingsDialog'
 import { VideoTaskStrip } from './components/VideoTaskStrip'
 import { VoiceStudio } from './components/VoiceStudio'
-import { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL, getGenerationModel, getPromptLimit, imageModels, videoModels } from './data/models'
+import { DEFAULT_IMAGE_MODEL, DEFAULT_VIDEO_MODEL, getGenerationModel, getPromptLimit, getThreeDModel, imageModels, threeDModels, videoModels } from './data/models'
 import { pricingLabels, sortModelsByPricing, type CatalogModel } from './data/providerCatalog'
 import { styleTemplates } from './data/templates'
 import { useImageQueue } from './hooks/useImageQueue'
-import { useProviderCatalog } from './hooks/useProviderCatalog'
+import type { ProviderCatalogState } from './hooks/useProviderCatalog'
 import { useVideoQueue } from './hooks/useVideoQueue'
 import { useThreeDQueue } from './hooks/useThreeDQueue'
 import { getProviderName, hasApiKeyForSettings, refreshAssetUrl } from './lib/ark'
@@ -20,8 +20,10 @@ import { isProviderConfigured, isProviderPersonallyConfigured } from './lib/prov
 import { clearHistory, loadHistory, loadPreferences, saveHistory, savePreferences } from './lib/storage'
 import { saveGeneratedAsset } from './lib/output'
 import { logActivity } from './lib/account'
+import { requestAgentAppAction, subscribeAgentAppActions, type AgentAppAction, type AgentPetMode } from './lib/agentNavigation'
+import { advanceAgentWorkflow, reportAgentWorkflowCommand, type AgentWorkflowCommand } from './lib/agentRuntime'
 import { MAX_VIDEO_REFERENCE_IMAGES } from './lib/video'
-import { languageModels, voiceModels } from './lib/creative'
+import { createSpeech, isTextToSpeechModel, languageModels, speechVoices, voiceModels } from './lib/creative'
 import type { AspectRatio, CanvasView, GeneratedAsset, GenerationKind, GenerationMode, GenerationSettings, ImageModel, Resolution, SettingsSnapshot, ThreeDJob, ThreeDModel, VideoJob, VideoModel } from './types/generation'
 
 const inspiration = [
@@ -64,8 +66,11 @@ function settingsFromSnapshot(snapshot: SettingsSnapshot): GenerationSettings {
   return restored
 }
 
-function App() {
-  const providerCatalog = useProviderCatalog()
+interface AppProps {
+  providerCatalog: ProviderCatalogState
+}
+
+function App({ providerCatalog }: AppProps) {
   const [settings, setSettings] = useState<GenerationSettings>(makeDefaults)
   const [history, setHistory] = useState<GeneratedAsset[]>(loadHistory)
   const [sessionId, setSessionId] = useState(makeSessionId)
@@ -89,7 +94,10 @@ function App() {
   const [maxVideoConcurrency, setMaxVideoConcurrency] = useState(() => loadPreferences().maxVideoConcurrency)
   const [maxThreeDConcurrency, setMaxThreeDConcurrency] = useState(() => loadPreferences().maxThreeDConcurrency)
   const promptRef = useRef<HTMLTextAreaElement>(null)
+  const agentActionHandlerRef = useRef<(action: AgentAppAction) => void>(() => undefined)
   const refreshingAssetsRef = useRef(new Set<string>())
+  const workflowCommandsRef = useRef(new Map<string, AgentWorkflowCommand>())
+  const finishWorkflowCommandRef = useRef<(command: AgentWorkflowCommand, ok: boolean, output?: Record<string, unknown>, error?: string) => Promise<void>>(async () => undefined)
   const failedAssetRefreshesRef = useRef(new Set<string>())
   const [refreshingAssetIds, setRefreshingAssetIds] = useState<string[]>([])
   const template = useMemo(() => styleTemplates.find((item) => item.id === settings.styleId), [settings.styleId])
@@ -103,7 +111,7 @@ function App() {
   const activeGenerationModel = settings.kind === '3d' ? undefined : getGenerationModel(settings)
   const activeHasApiKey = hasApiKeyForSettings(settings)
   const activeProviderName = getProviderName(settings)
-  const activeProviderId = settings.kind === '3d' ? 'ark' : activeGenerationModel?.provider ?? 'ark'
+  const activeProviderId = settings.kind === '3d' ? getThreeDModel(settings.threeDModel).provider : activeGenerationModel?.provider ?? 'ark'
   const sessionAssets = history.filter((asset) => sessionAssetIds.includes(asset.id))
   const currentKindSessionAssets = sessionAssets.filter((asset) => asset.settings.kind === settings.kind)
   const visibleAssets = canvasView === 'session' ? currentKindSessionAssets : history
@@ -112,12 +120,12 @@ function App() {
     setHistory((current) => current.some((item) => item.taskId && item.taskId === saved.taskId) ? current : [saved, ...current])
     if (saved.sessionId === sessionId) setSessionAssetIds((current) => [saved.id, ...current])
     const restored = settingsFromSnapshot(saved.settings)
-    const generatedModel = getGenerationModel(restored)
+    const generatedProvider = saved.kind === '3d' ? getThreeDModel(saved.settings.threeDModel).provider : getGenerationModel(restored).provider
     void logActivity({
       clientEventId: `asset:${saved.id}`,
       type: saved.kind,
       modelId: saved.settings.kind === 'image' ? saved.settings.imageModel : saved.settings.kind === 'video' ? saved.settings.videoModel : saved.settings.threeDModel,
-      provider: generatedModel?.provider ?? (saved.kind === '3d' ? 'ark' : ''),
+      provider: generatedProvider,
       inputText: saved.prompt,
       outputText: saved.compiledPrompt,
       mediaUrl: saved.url,
@@ -129,6 +137,11 @@ function App() {
       },
       createdAt: saved.createdAt,
     })
+    const workflowCommand = workflowCommandsRef.current.get(saved.sessionId)
+    if (workflowCommand) {
+      workflowCommandsRef.current.delete(saved.sessionId)
+      void finishWorkflowCommandRef.current(workflowCommand, true, { assetId: saved.id, url: saved.url, taskId: saved.taskId, outputPath: saved.outputPath, kind: saved.kind })
+    }
   }, [sessionId])
   const addAsyncImages = useCallback(async (results: GeneratedAsset[]) => {
     setHistory((current) => [...results, ...current.filter((item) => !results.some((result) => result.id === item.id))])
@@ -152,9 +165,34 @@ function App() {
         createdAt: saved.createdAt,
       })
     }
+    const workflowCommand = results.map((item) => workflowCommandsRef.current.get(item.sessionId)).find(Boolean)
+    if (workflowCommand) {
+      workflowCommandsRef.current.delete(`workflow:${workflowCommand.id}`)
+      void finishWorkflowCommandRef.current(workflowCommand, true, { assets: results.map((item) => ({ id: item.id, url: item.url, outputPath: item.outputPath })) })
+    }
   }, [sessionId])
-  const imageQueue = useImageQueue({ onComplete: addAsyncImages, onNotice: setNotice, onError: setImageError })
-  const videoQueue = useVideoQueue({ maxConcurrency: maxVideoConcurrency, onComplete: addAsyncResult, onNotice: setNotice })
+  const imageQueue = useImageQueue({
+    onComplete: addAsyncImages,
+    onNotice: setNotice,
+    onError: setImageError,
+    onFailed: async (job, message) => {
+      const command = workflowCommandsRef.current.get(job.sessionId)
+      if (!command) return
+      workflowCommandsRef.current.delete(job.sessionId)
+      await finishWorkflowCommandRef.current(command, false, undefined, message)
+    },
+  })
+  const videoQueue = useVideoQueue({
+    maxConcurrency: maxVideoConcurrency,
+    onComplete: addAsyncResult,
+    onNotice: setNotice,
+    onFailed: async (job, message) => {
+      const command = workflowCommandsRef.current.get(job.sessionId)
+      if (!command) return
+      workflowCommandsRef.current.delete(job.sessionId)
+      await finishWorkflowCommandRef.current(command, false, undefined, message)
+    },
+  })
   const threeDQueue = useThreeDQueue({ maxConcurrency: maxThreeDConcurrency, onComplete: addAsyncResult, onNotice: setNotice })
   const imageLoading = imageQueue.jobs.some((job) => job.status === 'queued' || job.status === 'running')
   const failedImageJob = imageQueue.jobs.find((job) => job.status === 'failed')
@@ -179,15 +217,113 @@ function App() {
     switchKind(kind)
   }
 
+  function openAgentWorkspace(mode: AgentPetMode, prompt: string) {
+    if (mode === 'chat') {
+      setPortalView('language')
+      return
+    }
+    if (mode === 'audio') {
+      void navigator.clipboard?.writeText(prompt)
+      setPortalView('audio')
+      setNotice('原始需求已复制，可直接粘贴到声音工作台继续制作')
+      return
+    }
+    const kind = mode === '3d' ? '3d' : mode
+    switchKind(kind)
+    patch({ prompt: prompt.slice(0, getPromptLimit({ ...settings, kind })) })
+    setPortalView('studio')
+    setCanvasView('session')
+    setPanelCollapsed(false)
+    setNotice(`小屎仙已把需求带入${mode === 'image' ? '图片' : mode === 'video' ? '视频' : '3D'}工作台`)
+    window.setTimeout(() => promptRef.current?.focus(), 80)
+  }
+
+  async function continueWorkflow(workflowId: string) {
+    for (let index = 0; index < 12; index += 1) {
+      const state = await advanceAgentWorkflow(workflowId)
+      window.dispatchEvent(new CustomEvent('xiaoy-agent-workflow-updated', { detail: state }))
+      if (state.pendingCommand) {
+        requestAgentAppAction({ type: 'workflow-command', command: state.pendingCommand })
+        return
+      }
+      if (state.status !== 'running') return
+    }
+  }
+
+  async function finishWorkflowCommand(command: AgentWorkflowCommand, ok: boolean, output?: Record<string, unknown>, error?: string) {
+    try {
+      const state = await reportAgentWorkflowCommand(command.workflowId, { stepId: command.stepId, commandId: command.id, ok, output, error })
+      window.dispatchEvent(new CustomEvent('xiaoy-agent-workflow-updated', { detail: state }))
+      if (ok && state.status === 'running') await continueWorkflow(command.workflowId)
+    } catch (caught) {
+      setNotice(caught instanceof Error ? caught.message : 'Agent 工作流结果回传失败')
+    }
+  }
+  finishWorkflowCommandRef.current = finishWorkflowCommand
+
+  async function executeWorkflowCommand(command: AgentWorkflowCommand) {
+    const workflowSessionId = `workflow:${command.id}`
+    setNotice(`Agent 正在执行：${command.label}`)
+    try {
+      if (command.kind === 'image') {
+        const model = imageModels.find((item) => item.pricing === 'free') ?? imageModels[0]
+        const ratio = ['1:1', '4:3', '3:4', '16:9', '9:16'].includes(command.payload.ratio || '') ? command.payload.ratio as AspectRatio : '16:9'
+        const values: GenerationSettings = {
+          ...makeDefaultsForKind('image'), kind: 'image', mode: 'text', prompt: (command.payload.prompt || '').slice(0, model.maxPromptLength),
+          ratio, resolution: model.resolutions.includes('2K') ? '2K' : model.resolutions[0], count: 1, imageModel: model.id,
+        }
+        switchKind('image'); setSettings(values); setPortalView('studio'); setCanvasView('session'); setPanelCollapsed(false)
+        if (!hasApiKeyForSettings(values)) throw new Error(`请先配置 ${getProviderName(values)} API Key，工作流已停在图片阶段`)
+        workflowCommandsRef.current.set(workflowSessionId, command)
+        await imageQueue.enqueue(values, workflowSessionId)
+        return
+      }
+      if (command.kind === 'video') {
+        const model = videoModels.find((item) => item.pricing === 'free') ?? videoModels[0]
+        const ratio = ['1:1', '4:3', '3:4', '16:9', '9:16'].includes(command.payload.ratio || '') ? command.payload.ratio as AspectRatio : '16:9'
+        const duration = model.durations?.includes(Number(command.payload.duration)) ? Number(command.payload.duration) : (model.durations?.at(-1) ?? 5)
+        const values: GenerationSettings = {
+          ...makeDefaultsForKind('video'), kind: 'video', mode: 'text', prompt: (command.payload.prompt || '').slice(0, model.maxPromptLength),
+          ratio, resolution: model.resolutions.includes('1080p') ? '1080p' : model.resolutions[0], duration, videoModel: model.id,
+        }
+        switchKind('video'); setSettings(values); setPortalView('studio'); setCanvasView('session'); setPanelCollapsed(false)
+        if (!hasApiKeyForSettings(values)) throw new Error(`请先配置 ${getProviderName(values)} API Key，工作流已停在视频阶段`)
+        workflowCommandsRef.current.set(workflowSessionId, command)
+        await videoQueue.enqueue(values, workflowSessionId)
+        return
+      }
+      const model = voiceModels.find((item) => item.id === voiceModelId && isTextToSpeechModel(item) && isProviderConfigured(item.providerId))
+        ?? voiceModels.find((item) => isTextToSpeechModel(item) && isProviderConfigured(item.providerId))
+      if (!model) throw new Error('没有已配置的语音合成模型，工作流已停在配音阶段')
+      setVoiceModelId(model.id); setPortalView('audio')
+      const audio = await createSpeech(model, command.payload.text || '', speechVoices[0].id)
+      await finishWorkflowCommand(command, true, { generated: true, bytes: Math.max(0, audio.url.length - audio.url.indexOf(',') - 1), modelId: model.id, characterCost: audio.characterCost })
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '页面命令执行失败'
+      workflowCommandsRef.current.delete(workflowSessionId)
+      setNotice(message)
+      await finishWorkflowCommand(command, false, undefined, message)
+    }
+  }
+
   function switchKind(kind: GenerationKind) {
     const videoModel = videoModels.find((model) => model.id === settings.videoModel) ?? videoModels[0]
     const imageModel = imageModels.find((model) => model.id === settings.imageModel) ?? imageModels[0]
-    const promptLimit = kind === 'image' ? imageModel.maxPromptLength : kind === 'video' ? videoModel.maxPromptLength : 1200
+    const promptLimit = kind === 'image' ? imageModel.maxPromptLength : kind === 'video' ? videoModel.maxPromptLength : getPromptLimit(settings)
     const prompt = kind === '3d' ? '' : settings.prompt.slice(0, promptLimit)
     if (settings.prompt.length > promptLimit) setNotice(`提示词已按目标模型上限截取为 ${promptLimit.toLocaleString()} 字符`)
     patch({ kind, mode: kind === '3d' ? 'image-to-3d' : 'text', firstFrame: undefined, lastFrame: undefined, referenceImages: undefined, prompt, resolution: kind === 'image' ? '2K' : kind === 'video' ? (videoModel.resolutions.includes('1080p') ? '1080p' : '720p') : '2K', duration: kind === 'video' && !videoModel.durations?.includes(settings.duration) ? (videoModel.durations?.[0] ?? 5) : settings.duration, threeDModel: settings.threeDModel ?? 'doubao-seed3d-2-0-260328' })
     setFrameError(undefined)
   }
+
+  agentActionHandlerRef.current = (action) => {
+    if (action.type === 'settings') openProviderSettings(action.providerId)
+    if (action.type === 'models') openModelCenter('language')
+    if (action.type === 'workspace') openAgentWorkspace(action.mode, action.prompt)
+    if (action.type === 'workflow-command') void executeWorkflowCommand(action.command)
+  }
+
+  useEffect(() => subscribeAgentAppActions((action) => agentActionHandlerRef.current(action)), [])
 
   function switchMode(mode: GenerationMode) {
     const usesFrame = mode === 'first-frame' || mode === 'first-last-frame' || mode === 'image-to-3d'
@@ -215,6 +351,16 @@ function App() {
     if (model.provider === 'agnes' && settings.mode !== 'text') setNotice('Agnes AI 已切换为文生视频；当前本地上传素材不是公开 URL')
   }
 
+  function selectThreeDModel(threeDModel: ThreeDModel) {
+    const model = getThreeDModel(threeDModel)
+    const nextMode = model.provider === 'tencent'
+      ? (settings.mode === 'text-to-3d' || settings.mode === 'image-to-3d' ? settings.mode : 'text-to-3d')
+      : 'image-to-3d'
+    const promptLimit = getPromptLimit({ ...settings, kind: '3d', threeDModel })
+    if (settings.prompt.length > promptLimit) setNotice(`提示词已按 ${model.name} 上限截取为 ${promptLimit.toLocaleString()} 字符`)
+    patch({ threeDModel, mode: nextMode, prompt: settings.prompt.slice(0, promptLimit) })
+  }
+
   function activateCatalogModel(model: CatalogModel) {
     if (model.category === 'image') {
       const target = imageModels.find((item) => (item.apiModel ?? item.id) === model.apiModel || item.id === model.id)
@@ -237,7 +383,7 @@ function App() {
     } else if (model.category === '3d') {
       const modelId = model.apiModel as ThreeDModel
       switchKind('3d')
-      patch({ threeDModel: modelId })
+      selectThreeDModel(modelId)
     } else if (model.category === 'chat') {
       setLanguageModelId(model.id)
       setPortalView('language')
@@ -291,9 +437,9 @@ function App() {
   function validate(next: GenerationSettings) {
     setPromptError(undefined); setFrameError(undefined)
     if (!hasApiKeyForSettings(next)) { setImageError(`请先在 API 设置中配置 ${getProviderName(next)} API Key`); openProviderSettings(activeProviderId); return false }
-    if (next.kind !== '3d' && !next.prompt.trim()) { setPromptError('请先写下画面描述'); setImageError('还缺少画面描述'); promptRef.current?.focus(); return false }
+    if ((next.kind !== '3d' || next.mode === 'text-to-3d') && !next.prompt.trim()) { setPromptError(next.kind === '3d' ? '请先描述要生成的 3D 模型' : '请先写下画面描述'); setImageError(next.kind === '3d' ? '还缺少 3D 模型描述' : '还缺少画面描述'); promptRef.current?.focus(); return false }
     if (next.prompt.length > getPromptLimit(next)) { setPromptError(`当前模型最多支持 ${getPromptLimit(next).toLocaleString()} 个字符`); setImageError('提示词超过模型上限'); promptRef.current?.focus(); return false }
-    if (next.kind === '3d' && !next.firstFrame) { setFrameError('图片转 3D 需要上传一张参考图片'); setImageError('请先上传参考图片'); return false }
+    if (next.kind === '3d' && next.mode === 'image-to-3d' && !next.firstFrame) { setFrameError('图片转 3D 需要上传一张参考图片'); setImageError('请先上传参考图片'); return false }
     if (next.kind === '3d' && next.firstFrame && (next.firstFrame.width < 300 || next.firstFrame.height < 300)) { setFrameError(`3D 参考图片至少需要 300 × 300px，当前为 ${next.firstFrame.width} × ${next.firstFrame.height}px`); setImageError('3D 参考图片尺寸过小'); return false }
     if (next.kind === 'video' && (next.mode === 'first-frame' || next.mode === 'first-last-frame') && !next.firstFrame) { setFrameError('当前模式需要上传首帧'); setImageError('请补充视频首帧'); return false }
     if (next.kind === 'video' && next.mode === 'first-last-frame' && !next.lastFrame) { setFrameError('首尾帧模式还需要尾帧'); setImageError('请补充视频尾帧'); return false }
@@ -393,7 +539,9 @@ function App() {
   const modes = settings.kind === 'image'
     ? [{ id: 'text', label: '文字生成' }]
     : settings.kind === '3d'
-      ? [{ id: 'image-to-3d', label: '图片转 3D' }]
+      ? (getThreeDModel(settings.threeDModel).provider === 'tencent'
+          ? [{ id: 'text-to-3d', label: '文字生成 3D' }, { id: 'image-to-3d', label: '图片转 3D' }]
+          : [{ id: 'image-to-3d', label: '图片转 3D' }])
       : settings.videoModel === 'agnes-video-v2.0'
         ? [{ id: 'text', label: '文字生成' }]
         : [{ id: 'text', label: '文字生成' }, { id: 'first-frame', label: '首帧生成' }, { id: 'first-last-frame', label: '首尾帧' }, { id: 'reference-images', label: '参考图生成' }]
@@ -407,6 +555,7 @@ function App() {
       onMarketplace={(family = 'language') => openModelCenter(family)}
       onStudio={openStudio}
       onLanguage={() => setPortalView('language')}
+      onAudio={() => setPortalView('audio')}
       onHistory={() => { setPortalView('studio'); setCanvasView('history') }}
       onSettings={() => openProviderSettings()}
     />
@@ -444,11 +593,11 @@ function App() {
               {settings.kind === 'video' && (settings.mode === 'first-frame' || settings.mode === 'first-last-frame') && <div className="frame-grid"><FrameUpload label="首帧" hint="JPG / PNG / WebP · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} />{settings.mode === 'first-last-frame' && <FrameUpload label="尾帧" hint="建议与首帧比例一致" value={settings.lastFrame} onChange={(lastFrame) => patch({ lastFrame })} disabled={!settings.firstFrame} error={settings.firstFrame ? frameError : undefined} />}</div>}
               {settings.kind === 'video' && settings.mode === 'reference-images' && <ReferenceImageUpload value={settings.referenceImages ?? []} onChange={(referenceImages) => { patch({ referenceImages }); setFrameError(undefined) }} error={frameError} />}
               {settings.kind === 'image' && activeGenerationModel?.supportsReferenceImage && <div className="frame-grid single"><FrameUpload label="参考图（可选）" hint="用于图生图或风格参考 · JPG / PNG / WebP · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} /></div>}
-              {settings.kind === '3d' && <div className="frame-grid single"><FrameUpload label="3D 参考图片" hint="不足 300 × 300px 自动白边补齐 · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} minWidth={300} minHeight={300} /></div>}
+              {settings.kind === '3d' && settings.mode === 'image-to-3d' && <div className="frame-grid single"><FrameUpload label="3D 参考图片" hint="不足 300 × 300px 自动白边补齐 · 最大 10MB" value={settings.firstFrame} onChange={(firstFrame) => patch({ firstFrame })} error={frameError} minWidth={300} minHeight={300} /></div>}
               {settings.kind === 'image' && <section className="control-section compact"><div className="section-label"><span>常用图片模型</span><button type="button" className="model-center-link" onClick={() => openModelCenter('vision')}>查看全部 {imageModels.length}</button></div><div className="model-choice generation-model-choice">{visibleImageModels.map((model) => <button type="button" key={model.id} aria-pressed={(settings.imageModel ?? DEFAULT_IMAGE_MODEL) === model.id} className={(settings.imageModel ?? DEFAULT_IMAGE_MODEL) === model.id ? 'active' : ''} onClick={() => selectImageModel(model.id)}><strong>{model.name}<b className={`inline-price ${model.pricing}`}>{pricingLabels[model.pricing]}</b></strong><span>{model.description}</span><small>{model.apiModel ?? model.id}</small></button>)}</div></section>}
               {settings.kind === 'video' && <section className="control-section compact"><div className="section-label"><span>视频模型</span><button type="button" className="model-center-link" onClick={() => openModelCenter('vision')}>查看全部 {videoModels.length}</button></div><div className="model-choice generation-model-choice">{videoModels.map((model) => <button type="button" key={model.id} aria-pressed={(settings.videoModel ?? DEFAULT_VIDEO_MODEL) === model.id} className={(settings.videoModel ?? DEFAULT_VIDEO_MODEL) === model.id ? 'active' : ''} onClick={() => selectVideoModel(model.id)}><strong>{model.name}<b className={`inline-price ${model.pricing}`}>{pricingLabels[model.pricing]}</b></strong><span>{model.description}</span><small>{model.apiModel ?? model.id}</small></button>)}</div></section>}
-              {settings.kind === '3d' && <section className="control-section compact"><div className="section-label"><span>3D 模型</span><small>MODEL</small></div><div className="model-choice">{([['doubao-seed3d-2-0-260328', 'Seed3D 2.0'], ['hyper3d-gen2-260112', 'Hyper3D Gen2']] as Array<[ThreeDModel, string]>).map(([model, label]) => <button type="button" key={model} aria-pressed={(settings.threeDModel ?? 'doubao-seed3d-2-0-260328') === model} className={(settings.threeDModel ?? 'doubao-seed3d-2-0-260328') === model ? 'active' : ''} onClick={() => patch({ threeDModel: model })}><strong>{label}</strong><small>{model}</small></button>)}</div></section>}
-              <section className="control-section"><div className="section-label"><label htmlFor="generation-prompt">{settings.kind === '3d' ? '输出命令（可选）' : '画面描述'}</label><small>{settings.kind === '3d' ? '3D OPTIONS' : 'PROMPT'}</small></div><PromptBox ref={promptRef} value={settings.prompt} onChange={(prompt) => { patch({ prompt }); setPromptError(undefined) }} onInspire={() => patch({ prompt: inspiration[Math.floor(Math.random() * inspiration.length)] })} maxLength={getPromptLimit(settings)} error={promptError} threeD={settings.kind === '3d'} /></section>
+              {settings.kind === '3d' && <section className="control-section compact"><div className="section-label"><span>3D 模型</span><small>MODEL</small></div><div className="model-choice generation-model-choice">{threeDModels.map((model) => <button type="button" key={model.id} aria-pressed={(settings.threeDModel ?? 'doubao-seed3d-2-0-260328') === model.id} className={(settings.threeDModel ?? 'doubao-seed3d-2-0-260328') === model.id ? 'active' : ''} onClick={() => selectThreeDModel(model.id)}><strong>{model.name}<b className={`inline-price ${model.pricing}`}>{pricingLabels[model.pricing]}</b></strong><span>{model.description}</span><small>{model.id}</small></button>)}</div></section>}
+              <section className="control-section"><div className="section-label"><label htmlFor="generation-prompt">{settings.kind === '3d' ? (settings.mode === 'text-to-3d' ? '3D 模型描述' : '输出命令（可选）') : '画面描述'}</label><small>{settings.kind === '3d' ? '3D PROMPT' : 'PROMPT'}</small></div><PromptBox ref={promptRef} value={settings.prompt} onChange={(prompt) => { patch({ prompt }); setPromptError(undefined) }} onInspire={() => patch({ prompt: inspiration[Math.floor(Math.random() * inspiration.length)] })} maxLength={getPromptLimit(settings)} error={promptError} threeD={settings.kind === '3d'} /></section>
               {settings.kind !== '3d' && <section className="control-section"><div className="section-label"><span>视觉主题（可选）</span><small>{template ? 'STYLE' : '默认不选'}</small></div><div className={`template-preview ${template ? '' : 'empty'}`} style={template ? { background: template.gradient } : undefined}><div><small>{template?.eyebrow ?? 'ORIGINAL PROMPT'}</small><strong>{template?.name ?? '不使用视觉主题'}</strong><p>{template?.description ?? '仅按画面描述生成，不附加预设风格。'}</p></div><span>{template ? '已应用' : '未选择'}</span></div><div className="template-row"><button type="button" aria-label="不使用视觉主题" aria-pressed={!template} className={`template-none ${template ? '' : 'active'}`} onClick={() => patch({ styleId: '' })}><span>原始描述</span></button>{styleTemplates.map((item) => { const selected = settings.styleId === item.id; return <button type="button" key={item.id} aria-pressed={selected} className={selected ? 'active' : ''} title={selected ? '再次点击取消此主题' : `选择${item.name}`} onClick={() => patch({ styleId: selected ? '' : item.id })} style={{ background: item.gradient }}><span>{item.name}</span></button> })}</div></section>}
               {settings.kind !== '3d' && <section className="control-section"><div className="section-label"><span>画面比例</span><small>{settings.ratio}</small></div><div className="ratio-row">{(['1:1', '4:3', '3:4', '16:9', '9:16'] as AspectRatio[]).map((ratio) => <button type="button" key={ratio} aria-pressed={settings.ratio === ratio} className={settings.ratio === ratio ? 'active' : ''} onClick={() => patch({ ratio })}><i style={{ aspectRatio: ratio.replace(':', '/') }} />{ratio}</button>)}</div></section>}
               {settings.kind !== '3d' && <section className="control-section compact"><div className="section-label"><span>输出清晰度</span><small>QUALITY</small></div><div className="chips-row">{activeGenerationModel!.resolutions.map((resolution) => <button type="button" aria-pressed={settings.resolution === resolution} className={settings.resolution === resolution ? 'active' : ''} key={resolution} onClick={() => patch({ resolution: resolution as Resolution })}>{resolution}</button>)}</div></section>}

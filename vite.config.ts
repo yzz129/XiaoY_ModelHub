@@ -303,7 +303,7 @@ function getProviderQuotaJson(target: string, headers: Record<string, string>) {
 }
 
 type DiscoveredModelCategory = 'chat' | 'image' | 'video' | 'audio' | 'embedding' | 'reranker' | '3d'
-type DiscoveredPricingTier = 'free' | 'free-quota' | 'paid' | 'variable'
+type DiscoveredPricingTier = 'free' | 'daily-refresh' | 'free-quota' | 'paid' | 'variable'
 
 interface DiscoveredProviderModel {
   apiModel: string
@@ -335,7 +335,6 @@ const supportedModelProviders = new Set([
   'deepinfra',
   'deepseek',
   'fireworks',
-  'github',
   'minimax',
   'mistral',
   'moonshot',
@@ -345,6 +344,12 @@ const supportedModelProviders = new Set([
   'sambanova',
   'together',
   'xai',
+  'zhipu',
+  'stepfun',
+  'scaleway',
+  'hyperbolic',
+  'novita',
+  'aimlapi',
 ])
 
 const providerDefaultPricing: Record<string, DiscoveredPricingTier> = {
@@ -369,7 +374,6 @@ const providerDefaultPricing: Record<string, DiscoveredPricingTier> = {
   deepinfra: 'variable',
   deepseek: 'paid',
   fireworks: 'variable',
-  github: 'free-quota',
   minimax: 'paid',
   mistral: 'paid',
   moonshot: 'paid',
@@ -379,6 +383,12 @@ const providerDefaultPricing: Record<string, DiscoveredPricingTier> = {
   sambanova: 'free-quota',
   together: 'paid',
   xai: 'paid',
+  zhipu: 'paid',
+  stepfun: 'paid',
+  scaleway: 'free-quota',
+  hyperbolic: 'free-quota',
+  novita: 'free-quota',
+  aimlapi: 'free-quota',
 }
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {
@@ -395,6 +405,38 @@ function stringValue(record: Record<string, unknown>, ...keys: string[]) {
 
 function stringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+const publicCatalogUrl = 'https://models.dev/api.json'
+const publicCatalogProviderIds: Partial<Record<string, string>> = {
+  alibaba: 'alibaba-cn',
+  cloudflare: 'cloudflare-workers-ai',
+  cohere: 'cohere',
+  gemini: 'google',
+  groq: 'groq',
+  minimax: 'minimax-cn',
+  scaleway: 'scaleway',
+  siliconflow: 'siliconflow-cn',
+  stepfun: 'stepfun',
+  zhipu: 'zhipuai',
+}
+
+async function fetchPublicCatalogRows(provider: string) {
+  const sourceId = publicCatalogProviderIds[provider]
+  if (!sourceId) return []
+  const upstream = await fetch(publicCatalogUrl, { signal: AbortSignal.timeout(30_000) })
+  const payload = objectValue(await upstream.json().catch(() => ({})))
+  if (!upstream.ok) throw new Error(`公共模型目录请求失败（${upstream.status}）`)
+  const source = objectValue(payload?.[sourceId])
+  const models = objectValue(source?.models)
+  if (!models) return []
+  return Object.entries(models).flatMap(([fallbackId, value]) => {
+    const model = objectValue(value)
+    if (!model || model.status === 'deprecated') return []
+    const apiModel = stringValue(model, 'id') || fallbackId
+    if (retiredModelsByProvider[provider]?.has(apiModel)) return []
+    return [{ ...model, id: apiModel }]
+  })
 }
 
 function rowsFromModelPayload(payload: unknown) {
@@ -416,9 +458,10 @@ function inferModelCategory(record: Record<string, unknown>, apiModel: string): 
     ...stringArray(architecture?.output_modalities),
   ].map((value) => value.toLowerCase())
   if (outputModalities.includes('embeddings') || outputModalities.includes('embedding')) return 'embedding'
+  if (outputModalities.includes('rerank') || outputModalities.includes('reranker')) return 'reranker'
   if (outputModalities.includes('video')) return 'video'
   if (outputModalities.includes('image')) return 'image'
-  if (outputModalities.includes('audio')) return 'audio'
+  if (outputModalities.some((value) => ['audio', 'speech', 'tts'].includes(value))) return 'audio'
 
   const endpoints = stringArray(record.endpoints)
   const descriptor = [
@@ -436,17 +479,158 @@ function inferModelCategory(record: Record<string, unknown>, apiModel: string): 
   return 'chat'
 }
 
+const retiredModelsByProvider: Partial<Record<string, Set<string>>> = {
+  alibaba: new Set(['deepseek-r1-distill-llama-8b']),
+  cerebras: new Set(['llama3.1-8b', 'qwen-3-235b-a22b-instruct-2507']),
+  zhipu: new Set(['glm-4.5-flash']),
+}
+
+const cloudflarePaidOnlyModels = new Set([
+  '@cf/moonshotai/kimi-k2.6',
+  '@cf/moonshotai/kimi-k2.7-code',
+  '@cf/zai-org/glm-5.2',
+  '@cf/deepseek-ai/deepseek-v4-flash-0731',
+  '@cf/deepseek-ai/deepseek-v4-pro-0813',
+])
+
+const geminiFreeTierModels = new Set([
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-live-translate-preview',
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-3.1-flash-live-preview',
+  'gemini-3.1-flash-tts-preview',
+  'gemini-3-flash-preview',
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash-lite-preview-09-2025',
+  'gemini-2.5-flash-native-audio-preview-12-2025',
+  'gemini-2.5-flash-preview-tts',
+  'gemini-embedding-2',
+  'gemini-embedding-001',
+  'gemini-robotics-er-2-preview',
+  'gemini-robotics-er-2-streaming-preview',
+  'gemini-robotics-er-1.6-preview',
+  'gemini-flash-latest',
+  'gemini-flash-lite-latest',
+])
+
+const groqFreePlanModels = new Set([
+  'whisper-large-v3', 'whisper-large-v3-turbo', 'llama-3.3-70b-versatile',
+  'llama-3.1-8b-instant', 'allam-2-7b', 'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b', 'openai/gpt-oss-safeguard-20b', 'qwen/qwen3.6-27b',
+  'meta-llama/llama-prompt-guard-2-86m', 'meta-llama/llama-prompt-guard-2-22m',
+  'groq/compound-mini', 'groq/compound', 'canopylabs/orpheus-arabic-saudi',
+  'canopylabs/orpheus-v1-english',
+])
+
+const cerebrasFreePlanModels = new Set(['gpt-oss-120b', 'zai-glm-4.7'])
+const sambanovaFreePlanModels = new Set([
+  'DeepSeek-V3.1', 'Meta-Llama-3.3-70B-Instruct', 'gpt-oss-120b',
+  'Llama-4-Maverick-17B-128E-Instruct', 'DeepSeek-V3.2',
+])
+
+const baiduFreeQuotaModels = new Set([
+  'ernie-4.5-turbo-128k', 'ernie-4.5-turbo-32k', 'ernie-4.5-turbo-vl',
+  'ernie-x1-turbo-32k', 'deepseek-r1', 'deepseek-r1-250528',
+  'deepseek-v3-250324', 'deepseek-v3.1-250821', 'deepseek-v3.1-think-250821',
+  'kimi-k2-instruct', 'qwen3-235b-a22b-instruct-2507', 'qwen3-30b-a3b-instruct-2507',
+  'qwen3-coder-30b-a3b-instruct', 'qwen3-coder-480b-a35b-instruct',
+  'bge-large-en', 'bge-large-zh', 'qianfan-sug-8k',
+])
+
+const alibabaFreeQuotaModels = new Set([
+  'deepseek-r1-distill-qwen-32b', 'qwen3-vl-plus', 'qwen3-coder-30b-a3b-instruct',
+  'qwen3.7-max', 'deepseek-r1', 'deepseek-v3-1', 'qwen-turbo', 'qwen-omni-turbo',
+  'qwen-vl-max', 'qwen3-32b', 'deepseek-v3-2-exp', 'deepseek-v4-flash',
+  'qwen3-vl-30b-a3b', 'qwen-math-plus', 'qwen3-235b-a22b', 'qwen-max',
+  'qwen3.5-397b-a17b', 'qwen3.5-flash', 'qwen-plus', 'deepseek-v4-pro',
+  'deepseek-v3', 'qwen3.5-plus', 'deepseek-r1-0528', 'qwen3-coder-flash',
+  'glm-5', 'qwen3.6-max-preview', 'qwen3.8-max', 'qwen3.7-plus', 'qwen3.7-flash',
+  'qwen3-vl-235b-a22b', 'qwen-vl-ocr', 'qwen3-14b', 'qwen-mt-turbo',
+  'qwen3-next-80b-a3b-thinking', 'qwen3-coder-480b-a35b-instruct',
+  'qwen3-omni-flash', 'kimi-k2.5', 'qwen-flash', 'moonshot-kimi-k2-instruct',
+  'qwen3-8b', 'qwen3-max', 'glm-5.2', 'deepseek-r1-distill-llama-70b',
+  'deepseek-r1-distill-qwen-7b', 'qwen2-5-omni-7b', 'qvq-max',
+  'qwen3-next-80b-a3b-instruct', 'qwen-long', 'qwen3-omni-flash-realtime',
+  'qwen3.6-plus', 'qwen-mt-plus', 'qwq-plus', 'glm-5.1', 'minimax-m2.5',
+  'deepseek-r1-distill-qwen-14b', 'qwen-omni-turbo-realtime', 'qwen3-asr-flash',
+  'qwen-vl-plus', 'kimi-k2-thinking', 'qwen3.6-flash', 'kimi-k2.6', 'qwen3-coder-plus',
+  'qwen-image-3.0-pro', 'wan2.7-image-pro', 'wan2.6-image', 'wan2.6-i2v',
+  'wan2.6-t2v', 'happyhorse-1.1-t2v', 'qwen-audio-3.0-tts-plus',
+  'qwen-audio-3.0-realtime-plus', 'fun-asr', 'fun-asr-realtime',
+  'text-embedding-v4', 'text-embedding-v3', 'qwen2.5-vl-embedding',
+  'tongyi-embedding-vision-plus', 'gte-rerank-v2',
+])
+
+function isArkFreeQuotaModel(apiModel: string) {
+  return /^(?:doubao-seed-2-1-(?:pro|turbo)|doubao-seed-evolving|doubao-seed-character|doubao-seedance-(?:1-5-pro|1-0-pro)|doubao-seedream-(?:5-0-lite|4-5|4-0)|doubao-embedding-vision)(?:$|-)/i.test(apiModel)
+}
+
+function discoveredOutputModalities(record: Record<string, unknown>) {
+  const architecture = objectValue(record.architecture)
+  return [
+    ...stringArray(record.output_modalities),
+    ...stringArray(record.supported_output_modalities),
+    ...stringArray(architecture?.output_modalities),
+  ].map((value) => value.toLowerCase())
+}
+
 function inferModelPricing(provider: string, record: Record<string, unknown>, apiModel: string): DiscoveredPricingTier {
+  if (record.paid_only === true) return 'paid'
   if (apiModel.endsWith(':free') || /(?:^|[-_/])free(?:$|[-_/])/.test(apiModel.toLowerCase())) return 'free'
+  if (record.is_free === true) return 'free'
+
+  if (provider === 'cloudflare') return cloudflarePaidOnlyModels.has(apiModel) ? 'paid' : 'daily-refresh'
+  if (provider === 'gemini') return geminiFreeTierModels.has(apiModel) ? 'daily-refresh' : 'paid'
+  if (provider === 'groq') return groqFreePlanModels.has(apiModel) ? 'daily-refresh' : 'paid'
+  if (provider === 'modelscope') return 'daily-refresh'
+  if (provider === 'cerebras') return cerebrasFreePlanModels.has(apiModel) ? 'daily-refresh' : 'paid'
+  if (provider === 'sambanova') return sambanovaFreePlanModels.has(apiModel) ? 'daily-refresh' : 'paid'
+  if (provider === 'cohere') return /(?:^|\/)north-mini-code(?:-1-0)?$/i.test(apiModel) ? 'free' : 'free-quota'
+  if (provider === 'elevenlabs') {
+    const freeUserLimit = Number(record.max_characters_request_free_user)
+    return Number.isFinite(freeUserLimit) && freeUserLimit > 0 ? 'free-quota' : 'paid'
+  }
+  if (provider === 'baidu') return baiduFreeQuotaModels.has(apiModel.toLowerCase()) ? 'free-quota' : 'paid'
+  if (provider === 'alibaba') {
+    const normalizedId = apiModel.toLowerCase()
+    if (normalizedId === 'deepseek-r1-distill-qwen-1-5b') return 'free'
+    return alibabaFreeQuotaModels.has(normalizedId) ? 'free-quota' : 'paid'
+  }
+  if (provider === 'ark') return isArkFreeQuotaModel(apiModel) ? 'free-quota' : 'paid'
+  if (provider === 'zhipu') {
+    return new Set(['glm-4.7-flash', 'glm-4.6v-flash', 'glm-4v-flash', 'bge-reranker-large'])
+      .has(apiModel.toLowerCase()) ? 'free' : 'paid'
+  }
+  if (provider === 'stepfun') {
+    return new Set(['step-gui', 'step-2x-large', 'step-1x-edit'])
+      .has(apiModel.toLowerCase()) ? 'free' : 'paid'
+  }
+  if (['scaleway', 'hyperbolic', 'novita', 'aimlapi'].includes(provider)) return 'free-quota'
+  if (provider === 'minimax') return 'free-quota'
+  if (provider === 'pollinations') return 'free-quota'
+  if (['huggingface', 'jina', 'nvidia', 'mistral', 'fireworks'].includes(provider)) return 'free-quota'
+
   const pricing = objectValue(record.pricing)
+  let numericPrices: number[] = []
   if (pricing) {
-    const numericPrices = Object.values(pricing)
+    numericPrices = Object.values(pricing)
       .flatMap((value) => typeof value === 'number' || typeof value === 'string' ? [Number(value)] : [])
       .filter(Number.isFinite)
-    if (numericPrices.length && numericPrices.every((value) => value === 0)) return 'free'
+    if (numericPrices.length && numericPrices.every((value) => value === 0)) {
+      const hasRichMediaOutput = discoveredOutputModalities(record)
+        .some((value) => ['video', 'image', 'audio', 'speech', 'tts'].includes(value))
+      if (provider === 'openrouter' && hasRichMediaOutput) return 'variable'
+      return 'free'
+    }
   }
-  if (record.paid_only === false || record.is_free === true) return 'free'
-  if (record.paid_only === true) return 'paid'
+  if (record.free_tier === true || record.has_free_tier === true) return 'free-quota'
+  if (numericPrices.some((value) => value > 0)) return 'paid'
+  if (provider === 'deepinfra') return 'paid'
   return providerDefaultPricing[provider] ?? 'variable'
 }
 
@@ -460,6 +644,7 @@ function normalizeProviderModels(provider: string, payload: unknown): Discovered
       : stringValue(record, 'baseModelId', 'model_id', 'id', 'name', 'llm')
     const apiModel = rawId.replace(/^models\//, '')
     if (!apiModel || apiModel.length > 240) continue
+    if (retiredModelsByProvider[provider]?.has(apiModel)) continue
     const rawName = stringValue(record, 'displayName', 'display_name', 'name', 'model_name', 'model_id', 'id', 'llm')
     const name = (rawName.replace(/^models\//, '') || apiModel).slice(0, 160)
     const description = stringValue(record, 'description', 'summary').slice(0, 500)
@@ -546,7 +731,7 @@ async function fetchProviderModelPayload(provider: string, apiKey: string, accou
       headers.Authorization = `Bearer ${apiKey}`
       break
     case 'minimax':
-      if (!apiKey) throw new Error('需要先配置 MiniMax API Key 才能同步完整模型目录')
+      if (!apiKey) return { data: await fetchPublicCatalogRows(provider) }
       target = 'https://api.minimaxi.com/v1/models'
       headers.Authorization = `Bearer ${apiKey}`
       break
@@ -565,11 +750,6 @@ async function fetchProviderModelPayload(provider: string, apiKey: string, accou
       target = 'https://api.perplexity.ai/v1/models'
       headers.Authorization = `Bearer ${apiKey}`
       break
-    case 'github':
-      target = 'https://models.github.ai/catalog/models'
-      headers['X-GitHub-Api-Version'] = '2026-03-10'
-      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
-      break
     case 'fireworks':
       if (!apiKey || !accountId) throw new Error('需要同时配置 Fireworks API Key 和 Account ID')
       target = `https://api.fireworks.ai/v1/accounts/${encodeURIComponent(accountId)}/models?pageSize=1000`
@@ -581,26 +761,26 @@ async function fetchProviderModelPayload(provider: string, apiKey: string, accou
       headers.Authorization = `Bearer ${apiKey}`
       break
     case 'gemini':
-      if (!apiKey) throw new Error('需要先配置 Google Gemini API Key 才能同步完整模型目录')
+      if (!apiKey) return { data: await fetchPublicCatalogRows(provider) }
       target = `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${encodeURIComponent(apiKey)}`
       break
     case 'groq':
-      if (!apiKey) throw new Error('需要先配置 Groq API Key 才能同步完整模型目录')
+      if (!apiKey) return { data: await fetchPublicCatalogRows(provider) }
       target = 'https://api.groq.com/openai/v1/models'
       headers.Authorization = `Bearer ${apiKey}`
       break
     case 'siliconflow':
-      if (!apiKey) throw new Error('需要先配置 SiliconFlow API Key 才能同步完整模型目录')
+      if (!apiKey) return { data: await fetchPublicCatalogRows(provider) }
       target = 'https://api.siliconflow.cn/v1/models'
       headers.Authorization = `Bearer ${apiKey}`
       break
     case 'cloudflare':
-      if (!apiKey || !accountId) throw new Error('需要同时配置 Cloudflare API Token 和 Account ID')
+      if (!apiKey || !accountId) return { data: await fetchPublicCatalogRows(provider) }
       target = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/models/search?per_page=1000`
       headers.Authorization = `Bearer ${apiKey}`
       break
     case 'cohere':
-      if (!apiKey) throw new Error('需要先配置 Cohere API Key 才能同步完整模型目录')
+      if (!apiKey) return { data: await fetchPublicCatalogRows(provider) }
       target = 'https://api.cohere.com/v1/models?page_size=1000'
       headers.Authorization = `Bearer ${apiKey}`
       break
@@ -610,12 +790,11 @@ async function fetchProviderModelPayload(provider: string, apiKey: string, accou
       headers.Authorization = `Bearer ${apiKey}`
       break
     case 'modelscope':
-      if (!apiKey) throw new Error('需要先配置 ModelScope API Key 才能同步完整模型目录')
       target = 'https://api-inference.modelscope.cn/v1/models'
-      headers.Authorization = `Bearer ${apiKey}`
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
       break
     case 'alibaba':
-      if (!apiKey) throw new Error('需要先配置阿里云百炼 API Key 才能同步完整模型目录')
+      if (!apiKey) return { data: await fetchPublicCatalogRows(provider) }
       target = 'https://dashscope.aliyuncs.com/compatible-mode/v1/models'
       headers.Authorization = `Bearer ${apiKey}`
       break
@@ -625,9 +804,36 @@ async function fetchProviderModelPayload(provider: string, apiKey: string, accou
       headers.Authorization = `Bearer ${apiKey}`
       break
     case 'jina':
-      if (!apiKey) throw new Error('需要先配置 Jina API Key 才能同步完整模型目录')
       target = 'https://api.jina.ai/v1/models'
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'zhipu':
+      if (!apiKey) return { data: await fetchPublicCatalogRows(provider) }
+      target = 'https://open.bigmodel.cn/api/paas/v4/models'
       headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'stepfun':
+      if (!apiKey) return { data: await fetchPublicCatalogRows(provider) }
+      target = 'https://api.stepfun.com/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'scaleway':
+      if (!apiKey) return { data: await fetchPublicCatalogRows(provider) }
+      target = 'https://api.scaleway.ai/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'hyperbolic':
+      if (!apiKey) throw new Error('需要先配置 Hyperbolic API Key 才能同步模型目录')
+      target = 'https://api.hyperbolic.xyz/v1/models'
+      headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'novita':
+      target = 'https://api.novita.ai/openai/v1/models'
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+      break
+    case 'aimlapi':
+      target = 'https://api.aimlapi.com/models'
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`
       break
     default:
       throw new Error('当前服务商不支持模型目录同步')
@@ -647,6 +853,24 @@ async function fetchProviderModelPayload(provider: string, apiKey: string, accou
       const root = objectValue(payload)
       results.push(...rowsFromModelPayload(payload))
       nextPage = typeof root?.next === 'string' && root.next ? root.next : undefined
+    }
+    return { results }
+  }
+
+  if (provider === 'huggingface') {
+    const results: Record<string, unknown>[] = []
+    let nextPage: string | undefined = target
+    for (let page = 0; page < 30 && nextPage; page += 1) {
+      const nextUrl = new URL(nextPage)
+      if (nextUrl.protocol !== 'https:' || nextUrl.hostname !== 'huggingface.co') {
+        throw new Error('Hugging Face 返回了不安全的分页地址')
+      }
+      const upstream = await fetch(nextUrl, { headers, signal: AbortSignal.timeout(30_000) })
+      const payload = await upstream.json().catch(() => ({}))
+      if (!upstream.ok) throw new Error(upstreamError(payload, upstream.status))
+      results.push(...rowsFromModelPayload(payload))
+      const link = upstream.headers.get('Link') || ''
+      nextPage = link.match(/<([^>]+)>;\s*rel="next"/)?.[1]
     }
     return { results }
   }
@@ -691,7 +915,6 @@ const chatProviderEndpoints: Record<string, string> = {
   deepinfra: 'https://api.deepinfra.com/v1/openai/chat/completions',
   deepseek: 'https://api.deepseek.com/chat/completions',
   fireworks: 'https://api.fireworks.ai/inference/v1/chat/completions',
-  github: 'https://models.github.ai/inference/chat/completions',
   minimax: 'https://api.minimaxi.com/v1/chat/completions',
   mistral: 'https://api.mistral.ai/v1/chat/completions',
   modelscope: 'https://api-inference.modelscope.cn/v1/chat/completions',
@@ -706,6 +929,12 @@ const chatProviderEndpoints: Record<string, string> = {
   pollinations: 'https://gen.pollinations.ai/v1/chat/completions',
   together: 'https://api.together.xyz/v1/chat/completions',
   xai: 'https://api.x.ai/v1/chat/completions',
+  zhipu: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+  stepfun: 'https://api.stepfun.com/v1/chat/completions',
+  scaleway: 'https://api.scaleway.ai/v1/chat/completions',
+  hyperbolic: 'https://api.hyperbolic.xyz/v1/chat/completions',
+  novita: 'https://api.novita.ai/openai/v1/chat/completions',
+  aimlapi: 'https://api.aimlapi.com/v1/chat/completions',
 }
 const allowedSpeechVoices = new Set(['JBFqnCBsd6RMkjVDRZzb', '21m00Tcm4TlvDq8ikWAM', 'pNInz6obpgDQGcFmaJgB'])
 const pollinationsSpeechVoices: Record<string, string> = {
@@ -781,7 +1010,6 @@ const creativeAiMiddleware: Connect.NextHandleFunction = async (request, respons
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
           ...(provider === 'openrouter' ? { 'HTTP-Referer': 'http://127.0.0.1:43129', 'X-Title': 'XiaoY_ModelHub' } : {}),
-          ...(provider === 'github' ? { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10' } : {}),
         },
         body: JSON.stringify({
           model,
@@ -1222,6 +1450,11 @@ export default defineConfig({
         target: process.env.XIAOY_BACKEND_ORIGIN ?? 'https://xiaoy-modelhub.pages.dev',
         changeOrigin: true,
         secure: true,
+        configure(proxy, options) {
+          proxy.on('proxyReq', (proxyRequest) => {
+            if (options.target) proxyRequest.setHeader('Origin', String(options.target))
+          })
+        },
       },
     },
   },

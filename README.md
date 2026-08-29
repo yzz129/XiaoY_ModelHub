@@ -4,6 +4,8 @@
 
 ## 功能
 
+- 小屎仙多模态 Agent：直接路由账号已配置的免费语言模型，支持图片/文本/代码附件、任务拆解、工具轨迹和联网来源
+- Agent 长期能力：D1 云端对话、可删除长期记忆、定时/周期/Cron 任务、模型故障切换与赞踩反馈优化
 - 图片生成与编辑：仅展示 Agnes Image 免费模型，兼容模型可上传参考图
 - 文生视频：仅展示 Agnes Video 免费模型，并支持异步任务恢复
 - 语言模型工作台：仅展示 OpenRouter 的免费路由与 `:free` 模型
@@ -134,6 +136,12 @@ npm run build
 # 检查代码规范
 npm run lint
 
+# 本地运行定时任务 Worker（可通过 /__scheduled 触发）
+npm run dev:agent
+
+# 部署定时任务 Worker
+npm run deploy:agent
+
 # 预览生产构建
 npm run preview
 ```
@@ -158,6 +166,27 @@ npm run preview
 - 不要将当前实现直接公开部署。
 - 公开部署时，应将 Agnes AI 和 OpenRouter 请求迁移到服务端代理，并仅在服务端保存 API Key。
 - 如果 API Key 曾出现在截图、日志或提交记录中，请立即在对应服务商控制台作废并重新生成。
+
+### Agent 服务端密钥
+
+Tavily 联网搜索密钥只能配置为 Cloudflare 服务端 Secret，禁止放入 `VITE_*`、`.env.local`、源码或 `wrangler*.jsonc`：
+
+```bash
+# Pages Functions 使用的联网搜索密钥
+npx wrangler pages secret put TAVILY_API_KEY --project-name xiaoy-modelhub
+
+# Pages Functions 与定时任务 Worker 之间共用的随机鉴权令牌
+npx wrangler pages secret put SCHEDULER_HEALTH_TOKEN --project-name xiaoy-modelhub
+npx wrangler secret put SCHEDULER_HEALTH_TOKEN --config wrangler.agent.jsonc
+```
+
+Pages 项目还必须配置与现有凭据数据库一致的 `KEY_ENCRYPTION_SECRET`。定时 Worker 不直接读取 D1 或服务商密钥，只使用 `SCHEDULER_HEALTH_TOKEN` 调用 Pages 的受保护内部端点；任务执行仍在 Pages Functions 中完成。两个环境中的调度令牌必须一致，且不能写入源码或配置文件。执行远程部署前先运行：
+
+```bash
+npx wrangler d1 migrations apply xiaoy-modelhub-db --remote --config wrangler.jsonc
+```
+
+Agent 的“自我优化”仅根据模型成功率、响应时间与用户赞踩调整免费模型顺序；不会自行改写源码、系统规则或权限。
 
 ## 主要目录
 

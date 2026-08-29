@@ -10,12 +10,13 @@ import {
   Sparkles,
   Video,
 } from 'lucide-react'
-import { catalogModels } from '../data/providerCatalog'
+import type { ProviderCatalogState } from '../hooks/useProviderCatalog'
 import { BinaryBubbleTrail } from './BinaryBubbleTrail'
 import { ModelCenter } from './ModelCenter'
 
 interface PublicHomeProps {
   onRequireAuth: () => void
+  providerCatalog: ProviderCatalogState
 }
 
 const capabilities = [
@@ -61,7 +62,9 @@ const capabilities = [
   },
 ]
 
-export function PublicHome({ onRequireAuth }: PublicHomeProps) {
+export function PublicHome({ onRequireAuth, providerCatalog }: PublicHomeProps) {
+  const providerCount = new Set(providerCatalog.models.map((model) => model.providerId)).size
+
   function browseModels() {
     document.getElementById('public-models')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
@@ -93,14 +96,14 @@ export function PublicHome({ onRequireAuth }: PublicHomeProps) {
               <button type="button" className="secondary" onClick={onRequireAuth}><Play /> 登录开始出货</button>
             </div>
             <div className="public-trust-row" aria-label="平台数据">
-              <span><b>{catalogModels.length}</b><small>个模型<br />随时开席</small></span>
+              <span><b>{providerCatalog.models.length}</b><small>个模型<br />随时开席</small></span>
               <span><b>05</b><small>种玩法<br />各显神通</small></span>
-              <span><b>11</b><small>个平台<br />轮流上桌</small></span>
+              <span><b>{providerCount}</b><small>个平台<br />轮流上桌</small></span>
             </div>
           </div>
 
           <div className="public-hero-visual" aria-label="XiaoY ModelHub 模型选择界面示意">
-            <div className="public-sticker sticker-models"><Sparkles /><b>{catalogModels.length} MODELS</b><small>OPEN TO EXPLORE</small></div>
+            <div className="public-sticker sticker-models"><Sparkles /><b>{providerCatalog.models.length} MODELS</b><small>OPEN TO EXPLORE</small></div>
             <div className="public-prism" aria-hidden="true"><i /><i /><i /></div>
             <div className="public-product-window">
               <div className="public-window-bar"><span /><span /><span /><b>XY / MODEL MAP</b><em>LIVE</em></div>
@@ -149,8 +152,11 @@ export function PublicHome({ onRequireAuth }: PublicHomeProps) {
           <ModelCenter
             embedded
             guest
-            models={catalogModels}
-            modelSyncSummary={`今天有 ${catalogModels.length} 坨可以挑`}
+            models={providerCatalog.models}
+            modelsRefreshing={providerCatalog.syncing}
+            modelSyncSummary={providerCatalog.syncing ? '正在同步官方模型目录…' : `今天有 ${providerCatalog.models.length} 坨可以挑`}
+            modelSyncDetail={providerCatalog.detail}
+            onRefreshModels={providerCatalog.refresh}
             onUseModel={() => onRequireAuth()}
           />
         </div>

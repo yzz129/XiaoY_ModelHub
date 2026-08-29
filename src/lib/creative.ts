@@ -31,7 +31,8 @@ export function hasCreativeProviderKey(providerId: string) {
 }
 
 export function supportsLanguageImageInput(model: CatalogModel) {
-  return model.description.includes('图片输入') || model.apiModel.includes('claude')
+  const evidence = `${model.name} ${model.apiModel} ${model.description}`.toLowerCase()
+  return /图片|图像|视觉|多模态|视频输入|vision|multimodal|omni|vl(?:[-_.:/]|$)|gemma-4|pixtral|llava|qwen.*(?:vl|omni)/i.test(evidence)
 }
 
 async function creativeRequest<T>(body: Record<string, unknown>, signal?: AbortSignal): Promise<T> {

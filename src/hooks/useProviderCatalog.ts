@@ -58,7 +58,11 @@ export function useProviderCatalog() {
       void refresh()
     }
     window.addEventListener('xiaoy:provider-catalog-invalidated', handleInvalidation)
-    return () => window.removeEventListener('xiaoy:provider-catalog-invalidated', handleInvalidation)
+    window.addEventListener('xiaoy-provider-credentials-changed', handleInvalidation)
+    return () => {
+      window.removeEventListener('xiaoy:provider-catalog-invalidated', handleInvalidation)
+      window.removeEventListener('xiaoy-provider-credentials-changed', handleInvalidation)
+    }
   }, [refresh])
 
   const models = useMemo(
@@ -87,3 +91,5 @@ export function useProviderCatalog() {
     refresh,
   }
 }
+
+export type ProviderCatalogState = ReturnType<typeof useProviderCatalog>
