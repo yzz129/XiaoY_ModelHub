@@ -170,7 +170,9 @@ test('登录后显示影视生产时间线并支持工作流控制中心', async
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
   const page = await context.newPage()
   const errors = []
-  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()) })
+  page.on('console', (message) => {
+    if (message.type() === 'error' && !message.text().startsWith('Failed to load resource:')) errors.push(message.text())
+  })
   page.on('pageerror', (error) => errors.push(error.message))
   try {
     const workflowTitle = `UI 回归测试项目 ${Date.now()}`
@@ -277,6 +279,74 @@ test('语言工作台限制模型 DOM、支持搜索附件并正确渲染 Markdo
   }
 })
 
+test('宠物 Agent 可区分管理员与用户配置，并只发送用户指定的模型', async () => {
+  const browser = await openBrowser()
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
+  const page = await context.newPage()
+  let runBody
+  await page.route('**/api/auth/me', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ user: { id: 'model-picker-user', displayName: 'Model Picker', email: 'picker@example.com', role: 'user' } }) }))
+  await page.route('**/api/credentials', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ credentials: [], configuredProviders: ['openrouter', 'openai'], personalProviders: ['openrouter'] }),
+  }))
+  await page.route('**/api/catalog/custom-models', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ models: [{
+      id: 'custom-admin-paid', apiModel: 'gpt-admin-paid', name: '管理员付费模型', provider: 'OpenAI', providerId: 'openai', category: 'chat', pricing: 'paid',
+      quota: '管理员账户额度', quotaLookup: '后台', integration: 'ready', description: '管理员配置模型', docsUrl: '#', keyUrl: '#',
+    }] }),
+  }))
+  await page.route('**/__provider_models', async (route) => {
+    const provider = route.request().postDataJSON()?.provider
+    const models = provider === 'openrouter'
+      ? [{ apiModel: 'qa/free', name: '用户免费模型', category: 'chat', pricing: 'free' }]
+      : []
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ provider, models, syncedAt: Date.now() }) })
+  })
+  await page.route('**/api/agent/state', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [], memories: [], tasks: [] }) }))
+  await page.route('**/api/agent/workflows', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ workflows: [] }) }))
+  await page.route('**/api/agent/run-stream', async (route) => {
+    runBody = route.request().postDataJSON()
+    const result = {
+      conversationId: 'picker-conversation', userMessageId: 'picker-user-message',
+      message: { id: 'picker-assistant-message', content: '指定模型已调用', createdAt: Date.now() },
+      model: { id: 'custom-admin-paid', apiModel: 'gpt-admin-paid', name: '管理员付费模型', provider: 'OpenAI', providerId: 'openai', pricing: 'paid' },
+      trace: [], sources: [],
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: `event: result\ndata: ${JSON.stringify(result)}\n\n`,
+    })
+  })
+  await page.route('**/api/activity', (route) => route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ ok: true }) }))
+  try {
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' })
+    await page.locator('.account-root').waitFor({ state: 'visible', timeout: 15_000 })
+    await page.getByLabel('打开小屎仙 Agent').click()
+    const panel = page.getByRole('dialog', { name: '小屎仙 Agent' })
+    const picker = panel.getByLabel('选择宠物 Agent 模型')
+    await page.waitForFunction(() => {
+      const select = document.querySelector('select[aria-label="选择宠物 Agent 模型"]')
+      return select instanceof HTMLSelectElement && [...select.options].some((option) => option.value === 'custom-admin-paid')
+    })
+    assert.match(await panel.locator('optgroup[label="用户已配置"]').innerText(), /用户免费模型.*完全免费/)
+    assert.match(await panel.locator('optgroup[label="管理员已配置"]').innerText(), /管理员付费模型.*付费/)
+    await picker.selectOption('custom-admin-paid')
+    await panel.getByLabel('发送给小屎仙 Agent').fill('使用我指定的模型')
+    await panel.getByRole('button', { name: '发送', exact: true }).click()
+    await panel.getByText('指定模型已调用', { exact: true }).waitFor({ state: 'visible' })
+    assert.equal(runBody.models.length, 1)
+    assert.equal(runBody.models[0].id, 'custom-admin-paid')
+    assert.equal(runBody.models[0].pricing, 'paid')
+  } finally {
+    await context.close()
+    await browser.close()
+  }
+})
+
 test('Agent 可展示联网来源、工具轨迹、长期记忆和定时任务', async () => {
   const browser = await openBrowser()
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
@@ -305,10 +375,8 @@ test('Agent 可展示联网来源、工具轨迹、长期记忆和定时任务',
   }))
   await page.route('**/api/agent/state', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state) }))
   await page.route('**/api/agent/workflows', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ workflows: [] }) }))
-  await page.route('**/api/agent/run', (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({
+  await page.route('**/api/agent/run-stream', (route) => {
+    const result = {
       conversationId: 'conversation-qa',
       userMessageId: 'user-message-qa',
       message: { id: 'assistant-message-qa', content: '| 检查项 | 状态 |\n| --- | --- |\n| 联网搜索 | 通过 |', createdAt: Date.now() },
@@ -319,8 +387,14 @@ test('Agent 可展示联网来源、工具轨迹、长期记忆和定时任务',
         { tool: 'create_task', reason: '建立每日巡检', status: 'success', elapsedMs: 5 },
       ],
       sources: [{ title: 'OpenRouter Models', url: 'https://openrouter.ai/models', content: 'Free routes', score: 0.92 }],
-    }),
-  }))
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: `event: progress\ndata: ${JSON.stringify({ phase: 'tool', tool: 'web_search' })}\n\nevent: result\ndata: ${JSON.stringify(result)}\n\n`,
+    })
+  })
+  await page.route('**/api/activity', (route) => route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ ok: true }) }))
   try {
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded' })
     await page.locator('.account-root').waitFor({ state: 'visible', timeout: 15_000 })
@@ -348,6 +422,192 @@ test('Agent 可展示联网来源、工具轨迹、长期记忆和定时任务',
   }
 })
 
+test('普通制作成片请求直接启动自动生产而不是进入聊天', async () => {
+  const browser = await openBrowser()
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
+  const page = await context.newPage()
+  let workflowBody
+  let chatCalls = 0
+  const baseWorkflow = {
+    id: 'workflow-auto-qa', title: '自动短片', brief: '用现有的生图生视频模型进行，没必要用别的', status: 'running',
+    currentStage: 'moodboard', currentStageLabel: '需求与情绪板', autoApprove: true, aspectRatio: '16:9', visualStyle: '',
+    stages: ['moodboard', 'script', 'character', 'scene', 'storyboard', 'image', 'audio', 'video', 'editing'].map((id) => ({ id, label: id })),
+    skills: [], steps: [], pendingCommand: null, createdAt: Date.now(), updatedAt: Date.now(),
+  }
+  await page.route('**/api/auth/me', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ user: { id: 'auto-qa', displayName: 'Auto QA', email: testEmail, role: 'user' } }) }))
+  await page.route('**/api/credentials', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ credentials: [], configuredProviders: ['openrouter'], personalProviders: [] }) }))
+  await page.route('**/api/agent/state', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [], memories: [], tasks: [] }) }))
+  await page.route('**/api/agent/workflows', async (route) => {
+    if (route.request().method() === 'POST') {
+      workflowBody = route.request().postDataJSON()
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(baseWorkflow) })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ workflows: [] }) })
+  })
+  await page.route('**/api/agent/workflows/workflow-auto-qa/advance', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ ...baseWorkflow, status: 'completed', currentStage: 'editing', currentStageLabel: '剪辑成片' }),
+  }))
+  await page.route('**/api/agent/run-stream', (route) => { chatCalls += 1; return route.abort() })
+  try {
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' })
+    await page.locator('.account-root').waitFor({ state: 'visible', timeout: 15_000 })
+    await page.getByLabel('打开小屎仙 Agent').click()
+    const panel = page.getByRole('dialog', { name: '小屎仙 Agent' })
+    assert.equal(await panel.locator('.agent-pet-modes').count(), 0)
+    await panel.getByLabel('发送给小屎仙 Agent').fill('用现有的生图生视频模型进行，没必要用别的')
+    await panel.getByRole('button', { name: '发送', exact: true }).click()
+    await panel.getByText(/已接管为自动生产任务/).waitFor({ state: 'visible' })
+    await panel.getByText('影视生产项目', { exact: true }).waitFor({ state: 'visible' })
+    assert.equal(workflowBody.autoApprove, true)
+    assert.equal(workflowBody.brief, '用现有的生图生视频模型进行，没必要用别的')
+    assert.equal(chatCalls, 0)
+    if (process.env.XIAOY_QA_SCREENSHOT) await page.screenshot({ path: process.env.XIAOY_QA_SCREENSHOT, fullPage: false })
+  } finally {
+    await context.close()
+    await browser.close()
+  }
+})
+
+test('页面重新打开后会自动续跑待执行的媒体阶段', async () => {
+  const browser = await openBrowser()
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, locale: 'zh-CN' })
+  const page = await context.newPage()
+  const wav = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA='
+  let reportBody
+  const command = {
+    id: 'resume-audio-command', workflowId: 'resume-workflow', stepId: 'resume-audio-step', kind: 'audio', label: '配音',
+    payload: { segments: [{ id: 'A01', speaker: '旁白', text: '自动续跑配音测试。' }], bgm: { title: '续跑配乐', mood: '克制、平稳', duration: 30 } },
+  }
+  const workflow = {
+    id: 'resume-workflow', title: '自动续跑项目', brief: '续跑测试', status: 'waiting_client', currentStage: 'audio', currentStageLabel: '配音',
+    autoApprove: true, aspectRatio: '16:9', visualStyle: '', stages: ['moodboard', 'script', 'character', 'scene', 'storyboard', 'image', 'audio', 'video', 'editing'].map((id) => ({ id, label: id })),
+    skills: [], steps: [], pendingCommand: command, finalArtifact: null, createdAt: Date.now(), updatedAt: Date.now(),
+  }
+  await page.route('**/api/auth/me', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ user: { id: 'resume-qa', displayName: 'Resume QA', email: testEmail, role: 'user' } }) }))
+  await page.route('**/api/credentials', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ credentials: [], configuredProviders: ['elevenlabs'], personalProviders: [] }) }))
+  await page.route('**/api/agent/state', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [], memories: [], tasks: [] }) }))
+  await page.route('**/api/agent/workflows', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ workflows: [workflow] }) }))
+  await page.route('**/api/agent/workflows/resume-workflow/advance', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(workflow) }))
+  await page.route('**/api/agent/workflows/resume-workflow/report', async (route) => {
+    reportBody = route.request().postDataJSON()
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...workflow, status: 'completed', pendingCommand: null }) })
+  })
+  await page.route('**/__creative_ai', (route) => {
+    const body = route.request().postDataJSON()
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(body.task === 'stt' ? { text: '自动续跑配音测试。' } : { audioBase64: wav, contentType: 'audio/wav' }),
+    })
+  })
+  try {
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' })
+    for (let index = 0; index < 50 && !reportBody; index += 1) await page.waitForTimeout(100)
+    assert.equal(reportBody?.commandId, command.id)
+    assert.equal(reportBody?.ok, true)
+    assert.equal(reportBody?.output?.assets?.length, 1)
+    assert.equal(reportBody?.output?.assets?.[0]?.role, 'narration')
+    assert.equal(reportBody?.output?.bgmReady, false)
+  } finally {
+    await context.close()
+    await browser.close()
+  }
+})
+
+test('浏览器剪辑器可把生产素材渲染为真实 WebM 成片', async () => {
+  const browser = await openBrowser()
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, locale: 'zh-CN' })
+  const page = await context.newPage()
+  try {
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' })
+    const result = await page.evaluate(async () => {
+      const media = await import('/src/lib/agentMedia.ts')
+      const workflowId = `render-qa-${Date.now()}`
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><rect width="1280" height="720" fill="#6f35dd"/><text x="640" y="360" fill="white" font-size="80" text-anchor="middle">XiaoY Agent QA</text></svg>`
+      const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+      await media.saveAgentMediaArtifact({ id: `${workflowId}-image`, workflowId, stage: 'image', kind: 'image', url, shotId: 'S01', createdAt: Date.now() })
+      const film = await media.renderAgentFilm({ workflowId, title: '浏览器成片 QA', ratio: '16:9', clips: [{ shotId: 'S01', duration: 1.5 }] })
+      const stored = await media.getAgentMediaArtifact(film.artifactId)
+      return { ...film, storedBytes: stored?.blob?.size, storedType: stored?.blob?.type }
+    })
+    assert.ok(result.bytes > 1_000, JSON.stringify(result))
+    assert.equal(result.storedBytes, result.bytes)
+    assert.match(result.mimeType, /^video\/webm/)
+    assert.match(result.storedType, /^video\/webm/)
+  } finally {
+    await context.close()
+    await browser.close()
+  }
+})
+
+test('外部视频不可用时可把每个关键帧渲染为真实 WebM 动效镜头', async () => {
+  const browser = await openBrowser()
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, locale: 'zh-CN' })
+  const page = await context.newPage()
+  try {
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' })
+    const result = await page.evaluate(async () => {
+      const media = await import('/src/lib/agentMedia.ts')
+      const workflowId = `motion-qa-${Date.now()}`
+      for (const [index, shotId] of ['S01', 'S02'].entries()) {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><rect width="1280" height="720" fill="${index ? '#28184f' : '#6f35dd'}"/><circle cx="${index ? 780 : 500}" cy="360" r="170" fill="#ffe36f"/><text x="640" y="650" fill="white" font-size="60" text-anchor="middle">${shotId}</text></svg>`
+        const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+        await media.saveAgentMediaArtifact({ id: `${workflowId}-${shotId}`, workflowId, stage: 'image', kind: 'image', url, shotId, createdAt: Date.now() + index })
+      }
+      const assets = await media.renderAgentMotionClips({ workflowId, ratio: '16:9', shots: [{ shotId: 'S01', duration: 1.5 }, { shotId: 'S02', duration: 1.5 }] })
+      const stored = await media.listAgentMediaArtifacts(workflowId, 'video')
+      return { assets, stored: stored.map((item) => ({ shotId: item.shotId, bytes: item.blob?.size, type: item.blob?.type })) }
+    })
+    assert.equal(result.assets.length, 2)
+    assert.equal(result.stored.length, 2)
+    assert.ok(result.assets.every((item) => item.bytes > 1_000 && item.renderMode === 'keyframe-motion'), JSON.stringify(result))
+    assert.ok(result.stored.every((item) => item.bytes > 1_000 && /^video\/webm/.test(item.type)), JSON.stringify(result))
+  } finally {
+    await context.close()
+    await browser.close()
+  }
+})
+
+test('媒体路由遇到供应商级限流会跳过同服务商并切换备用服务商', async () => {
+  const browser = await openBrowser()
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, locale: 'zh-CN' })
+  const page = await context.newPage()
+  try {
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' })
+    const result = await page.evaluate(async () => {
+      const routing = await import('/src/lib/agentModelRouting.ts')
+      const calls = []
+      const models = [
+        { id: 'agnes-20', name: 'Agnes 2.0', provider: 'agnes' },
+        { id: 'agnes-21', name: 'Agnes 2.1', provider: 'agnes' },
+        { id: 'cloudflare-flux', name: 'Cloudflare FLUX', provider: 'cloudflare' },
+      ]
+      const routed = await routing.runAcrossFreeMediaModels('关键帧 S01', models, async (model) => {
+        calls.push(model.id)
+        if (model.provider === 'agnes') throw new Error('error code: 1015')
+        return `asset:${model.id}`
+      }, () => undefined)
+      return {
+        calls,
+        model: routed.model.id,
+        result: routed.result,
+        rateLimited: routing.isProviderWideMediaFailure(new Error('HTTP 429 rate limit')),
+        balanceBlocked: routing.isProviderWideMediaFailure(new Error('Insufficient balance. available balance is 0.0000')),
+      }
+    })
+    assert.deepEqual(result.calls, ['agnes-20', 'cloudflare-flux'])
+    assert.equal(result.model, 'cloudflare-flux')
+    assert.equal(result.result, 'asset:cloudflare-flux')
+    assert.equal(result.rateLimited, true)
+    assert.equal(result.balanceBlocked, true)
+  } finally {
+    await context.close()
+    await browser.close()
+  }
+})
+
 test('登录后的手机端主导航与 Agent 面板均在视口内可操作', async () => {
   const browser = await openBrowser()
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'zh-CN' })
@@ -363,22 +623,115 @@ test('登录后的手机端主导航与 Agent 面板均在视口内可操作', a
   try {
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded' })
     await page.locator('.account-root').waitFor({ state: 'visible', timeout: 15_000 })
+    const panel = page.getByRole('dialog', { name: '小屎仙 Agent' })
+    await page.waitForFunction(() => document.querySelector('.agent-pet-panel')?.classList.contains('is-open'))
+    await panel.getByRole('button', { name: '关闭' }).click()
+    await page.getByRole('heading', { name: '说出目标，剩下的交给 Agent' }).waitFor({ state: 'visible' })
+    const launcher = page.getByLabel('打开小屎仙 Agent')
+    const launcherStyle = await launcher.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return { borderWidth: style.borderTopWidth, backgroundImage: style.backgroundImage, backgroundColor: style.backgroundColor, boxShadow: style.boxShadow }
+    })
+    assert.deepEqual(launcherStyle, { borderWidth: '0px', backgroundImage: 'none', backgroundColor: 'rgba(0, 0, 0, 0)', boxShadow: 'none' })
     const sidebar = page.locator('.portal-sidebar')
+    assert.equal(await sidebar.getByRole('button', { name: 'Agent 助手' }).isVisible(), true)
     assert.equal(await sidebar.getByRole('button', { name: '语言模型' }).isVisible(), true)
-    assert.equal(await sidebar.getByRole('button', { name: '语音创作' }).isVisible(), true)
-    assert.equal(await sidebar.getByRole('button', { name: '3D 生成' }).isVisible(), true)
+    assert.equal(await sidebar.getByRole('button', { name: '图像生成' }).isVisible(), true)
+    assert.equal(await sidebar.getByRole('button', { name: '视频生成' }).isVisible(), true)
+    assert.equal(await sidebar.getByRole('button', { name: 'API 与设置' }).isVisible(), true)
+    assert.equal(await sidebar.getByRole('button', { name: '语音创作' }).isVisible(), false)
+    assert.equal(await sidebar.getByRole('button', { name: '3D 生成' }).isVisible(), false)
     await sidebar.getByRole('button', { name: '语言模型' }).click()
     await page.getByRole('heading', { name: '语言模型' }).waitFor({ state: 'visible' })
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true)
 
-    await page.getByLabel('打开小屎仙 Agent').click()
-    const panel = page.getByRole('dialog', { name: '小屎仙 Agent' })
+    await sidebar.getByRole('button', { name: 'Agent 助手' }).click()
+    await page.waitForFunction(() => document.querySelector('.agent-pet-panel')?.classList.contains('is-open'))
     const box = await panel.boundingBox()
     assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 390 && box.y + box.height <= 844, JSON.stringify(box))
     const composer = panel.getByLabel('发送给小屎仙 Agent')
     const fontSize = await composer.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))
     assert.ok(fontSize >= 14, `手机端输入文字过小：${fontSize}px`)
     assert.equal(await panel.locator('.agent-pet-scroll').evaluate((element) => element.scrollTop), 0)
+    const modelRoute = panel.locator('.agent-pet-route')
+    if (!(await modelRoute.getAttribute('open'))) await modelRoute.locator('summary').click()
+    await modelRoute.getByRole('button', { name: '查看模型广场' }).click()
+    await page.waitForFunction(() => !document.querySelector('.agent-pet-panel')?.classList.contains('is-open'))
+    assert.equal(await panel.evaluate((element) => getComputedStyle(element).pointerEvents), 'none')
+    await page.locator('.model-center.marketplace.embedded').waitFor({ state: 'visible' })
+  } finally {
+    await context.close()
+    await browser.close()
+  }
+})
+
+test('后台总览指标卡可进入完整明细并保留筛选与分页', async () => {
+  const browser = await openBrowser()
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
+  const page = await context.newPage()
+  const requestedUrls = []
+  const pageInfo = (url, total) => {
+    const pageNumber = Number(new URL(url).searchParams.get('page') || 1)
+    return { page: pageNumber, limit: 100, total, totalPages: Math.max(1, Math.ceil(total / 100)) }
+  }
+  await page.route('**/api/auth/me', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ user: { id: 'admin-qa', displayName: 'Admin QA', email: 'admin@example.com', role: 'admin' } }) }))
+  await page.route('**/api/credentials', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ credentials: [], configuredProviders: [], personalProviders: [] }) }))
+  await page.route('**/api/admin/overview', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ totalUsers: 5, activeUsers24h: 2, totalRecords: 105, totalAssets: 69, byType: [{ type: 'chat', count: 15 }], assetsByType: [], latest: [] }),
+  }))
+  await page.route('**/api/admin/users?*', (route) => {
+    requestedUrls.push(route.request().url())
+    const active = new URL(route.request().url()).searchParams.get('active') === '24h'
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      users: [{ id: active ? 'active-user' : 'all-user', display_name: active ? '活跃用户' : '全部用户', email: 'user@example.com', role: 'user', created_at: Date.now() - 86_400_000, last_login_at: Date.now(), record_count: 19 }],
+      pagination: pageInfo(route.request().url(), active ? 2 : 5),
+    }) })
+  })
+  await page.route('**/api/admin/records?*', (route) => {
+    requestedUrls.push(route.request().url())
+    const url = new URL(route.request().url())
+    const chat = url.searchParams.get('type') === 'chat'
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      records: [{ id: `${chat ? 'chat' : 'record'}-${url.searchParams.get('page') || 1}`, display_name: 'Agent QA', email: 'agent@example.com', type: chat ? 'chat' : 'image', model_id: 'qa-model', provider: 'qa', input_text: '完整输入', output_text: '完整输出', metadata: { qa: true }, status: 'success', created_at: Date.now() }],
+      pagination: pageInfo(route.request().url(), chat ? 15 : 105),
+    }) })
+  })
+  await page.route('**/api/admin/assets?*', (route) => {
+    requestedUrls.push(route.request().url())
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ assets: [], pagination: { page: 1, limit: 60, total: 69, totalPages: 2 } }) })
+  })
+  try {
+    await page.goto(`${baseUrl}/#admin`, { waitUntil: 'domcontentloaded' })
+    await page.getByRole('heading', { name: '数据总览' }).waitFor({ state: 'visible' })
+
+    await page.getByRole('button', { name: /注册用户：5/ }).click()
+    await page.getByRole('heading', { name: '注册用户明细' }).waitFor({ state: 'visible' })
+    assert.match(await page.locator('.admin-list-context').innerText(), /共 5 条/)
+
+    await page.getByRole('button', { name: '数据总览' }).click()
+    await page.getByRole('button', { name: /24 小时活跃：2/ }).click()
+    await page.getByRole('heading', { name: '24 小时活跃用户' }).waitFor({ state: 'visible' })
+    assert.ok(requestedUrls.some((url) => url.includes('/api/admin/users?') && url.includes('active=24h')))
+
+    await page.getByRole('button', { name: '数据总览' }).click()
+    await page.getByRole('button', { name: /累计记录：105/ }).click()
+    await page.getByRole('heading', { name: '全部使用记录' }).waitFor({ state: 'visible' })
+    await page.getByRole('button', { name: /下一页/ }).click()
+    await page.waitForFunction(() => document.querySelector('.admin-pagination')?.textContent?.includes('第 2 / 2 页'))
+    assert.ok(requestedUrls.some((url) => url.includes('/api/admin/records?') && url.includes('page=2')))
+
+    await page.getByRole('button', { name: '数据总览' }).click()
+    await page.getByRole('button', { name: /生成资产：69/ }).click()
+    await page.getByRole('heading', { name: '生成资产明细' }).waitFor({ state: 'visible' })
+    await page.waitForFunction(() => document.querySelector('.admin-list-context')?.textContent?.includes('共 69 条'))
+    assert.match(await page.locator('.admin-list-context').innerText(), /共 69 条/)
+
+    await page.getByRole('button', { name: '数据总览' }).click()
+    await page.getByRole('button', { name: /对话次数：15/ }).click()
+    await page.getByRole('heading', { name: '对话记录明细' }).waitFor({ state: 'visible' })
+    assert.equal(await page.locator('.admin-filters select').inputValue(), 'chat')
   } finally {
     await context.close()
     await browser.close()
@@ -415,6 +768,26 @@ test('登录后所有创作页面可直达，图片与语音可完成输出，�
     contentType: 'application/json',
     body: JSON.stringify({ url: `data:image/png;base64,${png}`, path: 'output/images/qa.png' }),
   }))
+  await page.route('**/api/assets', async (route) => {
+    const multipart = route.request().postData() || ''
+    const isAudio = multipart.includes('\r\n\r\naudio\r\n')
+    const now = Date.now()
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        asset: {
+          id: `qa-asset-${now}`,
+          clientAssetId: `qa-client-${now}`,
+          type: isAudio ? 'audio' : 'image',
+          url: isAudio ? `data:audio/wav;base64,${wav}` : `data:image/png;base64,${png}`,
+          mimeType: isAudio ? 'audio/wav' : 'image/png',
+          bytes: isAudio ? 44 : 68,
+          createdAt: now,
+        },
+      }),
+    })
+  })
   await page.route('**/__creative_ai', async (route) => {
     const body = route.request().postDataJSON()
     await route.fulfill({

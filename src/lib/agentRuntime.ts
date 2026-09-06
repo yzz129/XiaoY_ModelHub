@@ -9,12 +9,23 @@ export interface AgentSource {
   score: number
 }
 
+export interface AgentRunEvent {
+  runId: string
+  phase: string
+  status: string
+  stepIndex: number
+  tool?: string | null
+  detail: Record<string, unknown>
+  createdAt: number
+}
+
 export interface AgentTrace {
   tool: string
   reason?: string
   model?: string
   provider?: string
-  status: 'success' | 'failed'
+  status: 'success' | 'failed' | 'approval_required'
+  risk?: 'read' | 'write' | 'destructive' | 'internal' | 'unknown'
   elapsedMs?: number
   error?: string
 }
@@ -41,6 +52,93 @@ export interface AgentTask {
   next_run_at?: number
 }
 
+export interface AgentPlanStep {
+  id: string
+  title: string
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked'
+  note?: string
+  updatedAt?: number
+}
+
+export interface AgentPlan {
+  id: string
+  conversationId: string
+  goal: string
+  status: 'active' | 'completed' | 'blocked' | 'cancelled'
+  steps: AgentPlanStep[]
+  version: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface AgentReview {
+  pass: boolean
+  score: number
+  summary: string
+  issues: string[]
+  completedStepIds: string[]
+  blockedStepIds: string[]
+}
+
+export interface AgentRunMetrics {
+  orchestration: 'standard' | 'full'
+  modelCalls: number
+  toolCalls: number
+  criticScore: number | null
+  repaired: boolean
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  cachedTokens: number
+  costMicrousd: number
+}
+
+export interface AgentRun {
+  id: string
+  conversation_id?: string
+  status: 'completed' | 'failed'
+  orchestration: 'standard' | 'full'
+  model_calls: number
+  tool_calls: number
+  failed_steps: number
+  duration_ms: number
+  critic_score?: number
+  repaired: number
+  error?: string
+  created_at: number
+  completed_at: number
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  cached_tokens: number
+  cost_microusd: number
+}
+
+export interface AgentApproval {
+  id: string
+  runId: string
+  conversationId: string
+  tool: string
+  risk: 'write' | 'destructive' | 'unknown'
+  reason: string
+  arguments: Record<string, unknown>
+  status: 'pending' | 'executing' | 'approved' | 'rejected' | 'failed'
+  result?: unknown
+  error?: string | null
+  createdAt: number
+  resolvedAt?: number | null
+}
+
+export interface AgentCheckpoint {
+  run_id: string
+  conversation_id?: string
+  status: 'failed'
+  phase: string
+  step_index: number
+  revision: number
+  updated_at: number
+}
+
 export interface AgentStateMessage {
   id: string
   role: 'user' | 'assistant'
@@ -58,6 +156,10 @@ export interface AgentState {
   messages: AgentStateMessage[]
   memories: AgentMemory[]
   tasks: AgentTask[]
+  plan?: AgentPlan | null
+  runs?: AgentRun[]
+  pendingApprovals?: AgentApproval[]
+  recoverableRuns?: AgentCheckpoint[]
 }
 
 export type AgentWorkflowStage = 'moodboard' | 'script' | 'character' | 'scene' | 'storyboard' | 'image' | 'audio' | 'video' | 'editing'
@@ -66,9 +168,24 @@ export interface AgentWorkflowCommand {
   id: string
   workflowId: string
   stepId: string
-  kind: 'image' | 'audio' | 'video'
+  kind: 'image' | 'audio' | 'video' | 'editing'
   label: string
-  payload: { prompt?: string; text?: string; ratio?: string; count?: number; duration?: number }
+  payload: {
+    prompt?: string
+    text?: string
+    ratio?: string
+    count?: number
+    duration?: number
+    prompts?: Array<{ shotId: string; prompt: string; overlayText?: string; continuityKey?: string }>
+    segments?: Array<{ id: string; speaker?: string; text: string }>
+    bgm?: { title?: string; mood?: string; duration?: number }
+    shots?: Array<{ shotId: string; duration: number; prompt: string; continuityKey?: string }>
+    title?: string
+    clips?: Array<{ shotId?: string; duration?: number }>
+    subtitles?: Array<{ start: number; end: number; text: string }>
+    qualityChecklist?: unknown[]
+    sourceQuality?: { video?: boolean; narration?: boolean; bgm?: boolean }
+  }
 }
 
 export interface AgentWorkflowStep {
@@ -102,6 +219,14 @@ export interface AgentWorkflow {
   skills: Array<{ id: string; name: string; stages: string[] }>
   steps: AgentWorkflowStep[]
   pendingCommand?: AgentWorkflowCommand | null
+  finalArtifact?: {
+    artifactId?: string
+    url?: string
+    fileName?: string
+    mimeType?: string
+    bytes?: number
+    duration?: number
+  } | null
   createdAt: number
   updatedAt: number
 }
@@ -127,6 +252,8 @@ export async function runMultimodalAgent(input: {
   mode: AgentPetMode
   attachments: ChatAttachment[]
   models: CatalogModel[]
+  orchestration?: 'standard' | 'full'
+  budget?: { maxTotalTokens?: number; maxCostMicrousd?: number }
   signal?: AbortSignal
 }) {
   return api<{
@@ -136,6 +263,14 @@ export async function runMultimodalAgent(input: {
     model: Pick<CatalogModel, 'id' | 'apiModel' | 'name' | 'provider' | 'providerId' | 'pricing'>
     trace: AgentTrace[]
     sources: AgentSource[]
+    plan?: AgentPlan | null
+    review?: AgentReview | null
+    orchestration: 'standard' | 'full'
+    metrics: AgentRunMetrics
+    runId: string
+    status: 'completed' | 'waiting_approval'
+    pendingApproval?: AgentApproval | null
+    budget: { maxTotalTokens: number; maxCostMicrousd: number; exceeded: boolean }
   }>('/api/agent/run', {
     method: 'POST',
     signal: input.signal,
@@ -145,8 +280,73 @@ export async function runMultimodalAgent(input: {
       mode: input.mode,
       attachments: input.attachments,
       models: input.models,
+      orchestration: input.orchestration ?? 'full',
+      budget: input.budget,
     }),
   })
+}
+
+export async function streamMultimodalAgent(
+  input: Parameters<typeof runMultimodalAgent>[0],
+  onEvent?: (event: AgentRunEvent) => void,
+): Promise<Awaited<ReturnType<typeof runMultimodalAgent>>> {
+  const response = await fetch('/api/agent/run-stream', {
+    method: 'POST',
+    credentials: 'include',
+    signal: input.signal,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      conversationId: input.conversationId,
+      prompt: input.prompt,
+      mode: input.mode,
+      attachments: input.attachments,
+      models: input.models,
+      orchestration: input.orchestration ?? 'full',
+      budget: input.budget,
+    }),
+  })
+  if (!response.ok || !response.body) {
+    const payload = await response.json().catch(() => ({})) as { error?: string }
+    throw new Error(payload.error || `Agent 流式请求失败（${response.status}）`)
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let result: Awaited<ReturnType<typeof runMultimodalAgent>> | null = null
+  let streamError = ''
+  const consume = (block: string) => {
+    const event = block.match(/^event:\s*(.+)$/m)?.[1]?.trim()
+    const data = block.split(/\r?\n/).filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('\n')
+    if (!event || !data) return
+    const payload = JSON.parse(data) as AgentRunEvent & { error?: string }
+    if (event === 'progress') onEvent?.(payload)
+    else if (event === 'result') result = payload as unknown as Awaited<ReturnType<typeof runMultimodalAgent>>
+    else if (event === 'error') streamError = payload.error || 'Agent 执行失败'
+  }
+  while (true) {
+    const chunk = await reader.read()
+    buffer += decoder.decode(chunk.value || new Uint8Array(), { stream: !chunk.done })
+    const blocks = buffer.split(/\r?\n\r?\n/)
+    buffer = blocks.pop() || ''
+    blocks.forEach(consume)
+    if (chunk.done) break
+  }
+  if (buffer.trim()) consume(buffer)
+  if (streamError) throw new Error(streamError)
+  if (!result) throw new Error('Agent 流式响应未返回最终结果')
+  return result
+}
+
+export async function resolveAgentApproval(approvalId: string, action: 'approve' | 'reject') {
+  return api<{
+    approval: AgentApproval
+    continuation: Awaited<ReturnType<typeof runMultimodalAgent>> | null
+    continuationError?: string | null
+  }>(`/api/agent/approvals/${encodeURIComponent(approvalId)}/${action}`, { method: 'POST', body: '{}' })
+}
+
+export async function resumeAgentRun(runId: string) {
+  return api<Awaited<ReturnType<typeof runMultimodalAgent>>>(`/api/agent/runs/${encodeURIComponent(runId)}/resume`, { method: 'POST', body: '{}' })
 }
 
 export async function deleteAgentConversation(conversationId: string) {

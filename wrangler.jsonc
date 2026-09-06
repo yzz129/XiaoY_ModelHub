@@ -2,6 +2,18 @@
   "name": "xiaoy-modelhub",
   "pages_build_output_dir": "./dist",
   "compatibility_date": "2026-07-30",
+  "vars": {
+    "MEDIA_STORAGE_PROVIDER": "unicloud",
+    "ALLOW_LEGACY_QINIU_READS": "false",
+    "AGENT_MAX_STEPS": "8",
+    "AGENT_RUN_TIMEOUT_MS": "90000",
+    "AGENT_MAX_TOTAL_TOKENS": "120000",
+    "AGENT_MAX_COST_MICROUSD": "1000000",
+    "AGENT_EMBEDDING_MODEL": "@cf/baai/bge-m3"
+  },
+  "ai": {
+    "binding": "AI"
+  },
   "d1_databases": [
     {
       "binding": "DB",

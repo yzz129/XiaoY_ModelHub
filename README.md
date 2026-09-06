@@ -4,8 +4,10 @@
 
 ## 功能
 
-- 小屎仙多模态 Agent：直接路由账号已配置的免费语言模型，支持图片/文本/代码附件、任务拆解、工具轨迹和联网来源
-- Agent 长期能力：D1 云端对话、可删除长期记忆、定时/周期/Cron 任务、模型故障切换与赞踩反馈优化
+- 小屎仙多模态 Agent：默认启用 Planner → Executor → Critic → Repair 完整编排，可自动拆解复杂任务、执行工具、独立审查并在必要时修复答案
+- Agent 长期能力：D1 云端对话、持久计划、可删除长期记忆、定时/周期/Cron 任务、模型故障切换、循环熔断、运行预算与赞踩反馈优化
+- Agent 可靠执行：步骤检查点、手动续跑、副作用幂等、危险工具审批，以及可选 Workers AI 语义记忆
+- Agent 可观测性：SSE 实时阶段事件、工具轨迹、联网来源、审查评分、Token/缓存/费用、模型与工具调用次数、修复状态和运行耗时
 - 图片生成与编辑：仅展示 Agnes Image 免费模型，兼容模型可上传参考图
 - 文生视频：仅展示 Agnes Video 免费模型，并支持异步任务恢复
 - 语言模型工作台：仅展示 OpenRouter 的免费路由与 `:free` 模型
@@ -136,6 +138,12 @@ npm run build
 # 检查代码规范
 npm run lint
 
+# 运行完整测试套件
+npm test
+
+# 单独运行 Planner / Executor / Critic / Repair 评测
+npm run test:agent-eval
+
 # 本地运行定时任务 Worker（可通过 /__scheduled 触发）
 npm run dev:agent
 
@@ -157,6 +165,27 @@ npm run preview
 - 失败任务只有在用户点击“重试”后才会创建新的提交 ID；恢复轮询始终沿用原 ID，不会因为刷新而重复提交。
 - 历史中的旧远端链接如果失效，应用会按任务 ID 刷新，并把刷新后的文件保存到对应的 `output` 分类目录。
 - 清除浏览器站点数据会删除本地历史和任务恢复信息。
+
+### uniCloud 支付宝云媒体归档
+
+线上媒体归档默认切换到 uniCloud 支付宝云的**内置云存储**。配套云函数与部署说明位于 `uniCloud-alipay/`。不要启用扩展存储/uni-cdn；它不是本方案使用的免费内置存储。
+
+- 上传先经过受 `CONNECTCODE` 保护的 URL 化云函数，单文件硬限制为 20 MB。
+- 读取先校验登录态并在 D1 中原子预占月度预算，再由 Worker 代理临时地址的内容；临时地址不会暴露给浏览器重复使用。
+- 应用层每个 UTC 自然月最多代理 8 GB 预览/下载流量；月上传 900 次、月读取 1,500 次和存储 4 GB 仍作为免费套餐安全阈值。
+- `ALLOW_LEGACY_QINIU_READS=false` 时不会在读取失败后回退七牛，也不会访问七牛旧资产。
+- 免费套餐必须保持“超限按量”关闭；支付宝云免费版当前 CDN 流量额度低于应用的 8 GB 硬上限，因此平台可能更早停服，不能把 8 GB 误认为免费额度。
+
+目标支付宝云服务空间是 `xiaoy`（SpaceID `env-00jy6sztxevs`）。仓库不预填或猜测 URL 化地址；部署云函数后必须从 uniCloud 控制台复制平台实际生成的完整 HTTPS URL，再设置 `UNICLOUD_STORAGE_ENDPOINT`。
+
+Cloudflare Pages 部署前需要设置实际 URL 和通讯密钥 Secret：
+
+```bash
+npx wrangler pages secret put UNICLOUD_STORAGE_ENDPOINT --project-name xiaoy-modelhub
+npx wrangler pages secret put UNICLOUD_S2S_CONNECT_CODE --project-name xiaoy-modelhub
+```
+
+它必须与云函数环境变量 `XIAOY_STORAGE_CONNECT_CODE` 完全相同，不能写入 `VITE_*` 或提交到仓库。
 
 ## 安全说明
 
@@ -186,7 +215,11 @@ Pages 项目还必须配置与现有凭据数据库一致的 `KEY_ENCRYPTION_SEC
 npx wrangler d1 migrations apply xiaoy-modelhub-db --remote --config wrangler.jsonc
 ```
 
-Agent 的“自我优化”仅根据模型成功率、响应时间与用户赞踩调整免费模型顺序；不会自行改写源码、系统规则或权限。
+上述命令会同时应用 Agent 持久计划、运行记录和可靠执行迁移（`0010_agent_plans.sql`、`0011_agent_runs.sql`、`0012_agent_reliability.sql`）。
+
+Agent 默认单轮上限为 8 个步骤、90 秒、120,000 Token 和 1 美元（以服务商返回的费用为准）。可通过 `AGENT_MAX_STEPS`、`AGENT_RUN_TIMEOUT_MS`、`AGENT_MAX_TOTAL_TOKENS`、`AGENT_MAX_COST_MICROUSD` 调整；将费用上限设为 `0` 可关闭费用熔断。Workers AI 可用时，`AGENT_EMBEDDING_MODEL` 默认使用 `@cf/baai/bge-m3` 为长期记忆生成语义向量。
+
+Agent 的“自我优化”仅在自动选择模式下根据模型成功率、响应时间与用户赞踩调整已配置模型顺序；不会自行改写源码、系统规则或权限。
 
 ## 主要目录
 

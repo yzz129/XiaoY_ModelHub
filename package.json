@@ -10,13 +10,15 @@
     "deploy:agent": "wrangler deploy --config wrangler.agent.jsonc",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "node --test tests/agent-workflow.test.js tests/agent-runtime.test.js",
+    "test": "node --test tests/agent-workflow.test.js tests/agent-runtime.test.js tests/agent-evaluation.test.js tests/agent-reliability.test.js tests/generation-request.test.js tests/qiniu-storage.test.js tests/unicloud-storage.test.js",
+    "test:agent-eval": "node --test tests/agent-evaluation.test.js tests/agent-reliability.test.js",
     "test:ui": "node --test tests/agent-pet-ui.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
     "@google/model-viewer": "^4.3.1",
     "@vitejs/plugin-react": "latest",
+    "aws4fetch": "^1.0.20",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
@@ -32,7 +34,7 @@
     "eslint-plugin-react-refresh": "latest",
     "globals": "latest",
     "playwright": "^1.62.1",
-    "typescript": "latest",
+    "typescript": "6.0.3",
     "typescript-eslint": "latest"
   }
 }
